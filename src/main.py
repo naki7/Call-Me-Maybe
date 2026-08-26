@@ -1,4 +1,4 @@
-from .in_out_handler import json_to_obj, obj_to_json
+from in_out_handler import json_to_obj, obj_to_json
 from llm_sdk.llm_sdk import Small_LLM_Model
 from typing import Any
 import sys
