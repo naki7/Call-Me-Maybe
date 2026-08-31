@@ -1,44 +1,47 @@
 import json
+from pathlib import Path
 from typing import Any
 
+DIRECTORY = Path('./data/output')
+BASE_FILE = DIRECTORY / "function_calling_results.json"
+BACKUP_FILE = DIRECTORY / "function_calling_results_backup.json"
 
-def json_to_obj(file: str) -> dict[Any, Any]:
-    dict_result: dict[Any, Any] = {}
-    direct_text: str = ''
 
+def check_directory() -> None:
+    DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+
+def json_to_obj(file: str) -> Any:
     try:
-        with open(file, "rt") as text:
-            direct_text = text.read()
+        with open(file, "r", encoding="utf-8") as text:
+            return json.load(text)
     except FileNotFoundError:
-        print("JSON file could not be found")
+        print(f"JSON file not found: {file}")
         quit()
     except PermissionError:
-        print("JSON file permissions do not allow access")
+        print(f"Permissions denied while opening: {file}")
         quit()
+    except json.JSONDecodeError as alert:
+        print(f"Invalid JSON in: {file} - {alert}")
 
-    dict_result = json.loads(direct_text)
-
-    return dict_result
+    return {}
 
 
 def obj_to_json(object: dict[Any, Any]) -> None:
-    out_name: str = './data/output/function_calling_results.json'
-    backup_name: str = './data/output/function_calling_results_backup.json'
+    check_directory()
 
     try:
-        with open(out_name, 'x') as file:
-            file.write(json.dumps(object))
-            print('function_calling_results.json successfully written.')
+        with open(BASE_FILE, 'x', encoding="utf-8") as file:
+            json.dump(object, file, indent=2)
+            file.write('\n')
+        print(f'{BASE_FILE} successfully written.')
     except FileExistsError:
         try:
-            with open(backup_name, 'x') as file:
-                file.write(json.dumps(object))
-            print('function_calling_results_.json already exists. Switching',
-                  'to function_calling_results_backup.json.\nPlease note,',
-                  'there are no further backup files.\nPlease Move or Delete,',
-                  'current files')
+            with open(BACKUP_FILE, 'x', encoding="utf-8") as file:
+                json.dump(object, file, indent=2)
+                file.write('\n')
+            print(f'{BASE_FILE} already exists. {BACKUP_FILE} successfully',
+                  'written')
         except FileExistsError:
-            print('Both the function_calling_results.json file and the',
-                  'function_calling_results_backup.json file have already',
-                  'been created and used.\nPlease Move or Delete these files',
-                  'before running the program again.')
+            print(f'Both {BASE_FILE} file and {BACKUP_FILE} file exist',
+                  '\nRemove or rename them before rerunning.')
