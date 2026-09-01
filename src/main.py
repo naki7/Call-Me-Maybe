@@ -65,25 +65,87 @@ User request:
     return prompt_string
 
 
-def args_from_llm_output(output: str,
-                         functions: dict[str, Any]) -> dict[str, Any]:
+def parse_output(llm_output: str) -> dict[str, Any] | None:
+    """
+    - Try to directly translate through json.loads
+    - Else look for <<JSON>> Markers
+    - Else look for last bracket section
+    - Else try fallbacks
+    Lastly throw error if all fails
+    """
+
     try:
-        obj = json.loads(output)
+        return json.loads(llm_output)
     except json.JSONDecodeError:
-        print(f"LLM returned invalid JSON: {output}")
-        quit()
+        pass
+
+    matches = list(re.finditer(r'<<JSON_START>>(.*?)<<JSON_END>>', llm_output,
+                               re.S))
+    attempt = matches[-1].group(1).strip() if matches else None
+
+    if not attempt:
+        def balanced_regions(output: str):
+            regions = []
+
+            for i, chr in enumerate(output):
+                if chr != "{":
+                    continue
+                depth = 0
+                for j in range(i, len(output)):
+                    if output[j] == "{":
+                        depth += 1
+                    elif output[j] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            regions.append(output[i: j + 1])
+                            break
+                return regions
+
+        regions = balanced_regions(llm_output)
+        if regions:
+            attempt = regions[-1].strip()
+
+    if not attempt:
+        raise ValueError(f"Could not find JSON object in LLM output: {
+                         llm_output!r}")
+
+    try:
+        return json.loads(attempt)
+    except json.JSONDecodeError:
+        try:
+            return ast.literal_eval(attempt)
+        except Exception:
+            try:
+                return json.loads(attempt.replace("'", '"'))
+            except Exception as alert:
+                raise ValueError(f"Failed to parse: {alert}\n{attempt!r}")
+
+
+def args_from_llm_output(output: str | dict[str, Any],
+                         functions: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(output, str):
+        try:
+            obj = json.loads(output)
+        except json.JSONDecodeError:
+            raise ValueError(f"LLM returned invalid JSON: {output!r}")
+    else:
+        obj = output
+
+    if not isinstance(obj, dict):
+        raise ValueError(f"Parsed LLM output is not an object: {obj!r}")
 
     if "arguments" not in obj:
-        print(f"LLM response missing 'arguments': {output}")
-        quit()
+        raise ValueError(f"LLM response missing 'arguments': {obj}")
 
     args = obj["arguments"]
+    if not isinstance(args, dict):
+        raise ValueError(f"'arguments' must be an object: {args!r}")
+
     params = functions.get("parameters", {})
 
     for key in params:
         if key not in args:
-            print(f"Missing argument '{key}' for {functions['name']}")
-            quit()
+            raise ValueError(f"Missing argument '{key}'- {functions['name']}")
 
     return args
 
@@ -115,109 +177,59 @@ def test_function(func: str, args: dict[str, Any]) -> Any:
 
 def process_prompts(prompt: str, registry: list[dict[str, Any]],
                     model: Small_LLM_Model) -> dict[str, Any]:
+    # produce registry and run it against LLM to get output
     func_prompt = func_select_prompt(prompt, registry)
     llm_output = generate(func_prompt, 128, model)
 
+    # parse output/handle errors
     try:
-        result = json.loads(llm_output)
-    except json.JSONDecodeError:
-        print("Raw LLM output:", repr(llm_output))
-
-        def extract_first_json(text: str):
-            # find first balanced {...} and try to parse it
-            for i, ch in enumerate(text):
-                if ch != "{":
-                    continue
-                depth = 0
-                for j in range(i, len(text)):
-                    if text[j] == "{":
-                        depth += 1
-                    elif text[j] == "}":
-                        depth -= 1
-                        if depth == 0:
-                            candidate = text[i:j+1]
-                            try:
-                                return json.loads(candidate)
-                            except json.JSONDecodeError:
-                                # try python literal fallback
-                                try:
-                                    return ast.literal_eval(candidate)
-                                except Exception:
-                                    # continue scanning for next
-                                    # balanced region
-                                    break
-            return None
-
-        # marker-based: take the last marker-delimited block if any
-        matches = list(re.finditer(r'<<JSON_START>>(.*?)<<JSON_END>>',
-                                   llm_output, re.S))
-        candidate = None
-        if matches:
-            candidate = matches[-1].group(1).strip()
-
-        if candidate:
-            try:
-                result = json.loads(candidate)
-            except json.JSONDecodeError:
-                try:
-                    result = ast.literal_eval(candidate)
-                except Exception:
-                    try:
-                        result = json.loads(candidate.replace("'", '"'))
-                    except Exception as e:
-                        print("Failed to parse candidate from markers:", e)
-                        quit()
-        else:
-            # fallback: balanced-brace extractor
-            # (your existing extract_first_json)
-            result = extract_first_json(llm_output)
-            if result is None:
-                # last-resort naive region
-                start = llm_output.find("{")
-                end = llm_output.rfind("}")
-                if start == -1 or end == -1 or end < start:
-                    print(f"Could not find JSON object in LLM output: {
-                        llm_output!r}")
-                    quit()
-                candidate = llm_output[start:end + 1]
-                try:
-                    result = json.loads(candidate)
-                except Exception:
-                    try:
-                        result = ast.literal_eval(candidate)
-                    except Exception as e:
-                        print("Failed to parse candidate:", e)
-                        quit()
-
-        result = extract_first_json(llm_output)
-        if result is None:
-            # last resort: try naive single-quote -> double-quote replacement
-            # on the first { .. } region found by simple find/rfind
-            start = llm_output.find("{")
-            end = llm_output.rfind("}")
-            if start == -1 or end == -1 or end < start:
-                print(f"Could not find JSON object in LLM output: {
-                    llm_output!r}")
-                quit()
-            candidate = llm_output[start:end + 1]
-            try:
-                result = json.loads(candidate.replace("'", '"'))
-            except Exception as alert:
-                print("Failed to parse candidate as JSON/Python literal",
-                      f"Error: {alert},\nFrom: {candidate!r}")
-                quit()
-
-    name = result.get("function_name")
-    if name not in funcs.FUNC_DISPATCH:
-        print(f"LLM selected function not recognized: {name}")
+        result = parse_output(llm_output)
+    except Exception as alert:
+        print(f"Failed to parse LLM output: {alert!r}")
+        print("Raw LLM output (truncated):", repr(llm_output)[:1000])
         quit()
 
-    definition = next(func for func in registry if func.get("name") == name)
+    # verify parsed object structure
+    if not isinstance(result, dict):
+        print(f"Parse result is not an object: {result}")
+        quit()
 
-    arguments = args_from_llm_output(json.dumps(result), definition,)
+    # extract function name
+    name = result.get("function_name")
+    if not isinstance(name, str):
+        print(f"Parsed result missing valid 'function_name': {result}")
+        quit()
+    if name not in funcs.FUNC_DISPATCH:
+        print(f"LLM selected function not listed: {name}")
+        quit()
 
-    validated_args = handle_args(name, arguments)
-    final = test_function(name, validated_args)
+    # extract definition
+    definition = next((func for func in registry if func.get("name") == name),
+                      None)
+    if definition is None:
+        print(f"No function definition in LLM selection: {name}")
+        quit()
+
+    # extract arguments
+    try:
+        arguments = args_from_llm_output(result, definition)
+    except Exception as alert:
+        print(f"Arguments couldn't be validated: {alert}")
+        quit()
+
+    # normalize arguments for function testing
+    try:
+        validated_args = handle_args(name, arguments)
+    except Exception as alert:
+        print(f"Arguments couldn't be normalized: {alert}")
+        quit()
+
+    # Test function
+    try:
+        final = test_function(name, validated_args)
+    except Exception as alert:
+        print(f"Function couldn't be executed: {alert}")
+        quit()
 
     return {
         "function_name": name,
