@@ -1,5 +1,7 @@
 import json
 import sys
+import re
+import ast
 from typing import Any
 
 from llm_sdk import Small_LLM_Model
@@ -22,16 +24,26 @@ def func_select_prompt(user_input: str,
         indent=2
     )
 
+    expect_shape = json.dumps(
+        {
+            "function_name": "fn_add_numbers",
+            "arguments": {"a": 2, "b": 3},
+        },
+        indent=2,
+    )
+
     prompt_string = f"""
 You are a tool-calling assistant.
 
 Select exactly one function from the registry below that best matches the
 user's request.
 Return only valid JSON with this exact shape:
-{{
-    "function_name": "name_of_chosen_function",
-    "arguments": {{ ... parameter names and values ... }}
-}}
+{expect_shape}
+
+Return ONLY the JSON object between these markers (nothing else):
+<<JSON_START>>
+{expect_shape}
+<<JSON_END>>
 
 Rules:
 - Use only function names from the registry.
@@ -39,6 +51,9 @@ Rules:
 - Do not include explanations or markdown.
 - If a value is missing, use null.
 - Return valid JSON only.
+- Return ONLY the JSON object between the markers.
+- Do NOT repeat the prompt, the registry, or the example.
+- Do NOT include the markers in the JSON output (only the delimiter).
 
 Registry:
 {registry}
@@ -106,13 +121,91 @@ def process_prompts(prompt: str, registry: list[dict[str, Any]],
     try:
         result = json.loads(llm_output)
     except json.JSONDecodeError:
-        # pull JSON from response
-        start = llm_output.find("{")
-        end = llm_output.find("}")
+        print("Raw LLM output:", repr(llm_output))
 
-        if start == -1 or end == -1 or end < start:
-            print(f"Could not parse LLM output to JSON: {llm_output}")
-        result = json.loads(llm_output[start:end + 1])
+        def extract_first_json(text: str):
+            # find first balanced {...} and try to parse it
+            for i, ch in enumerate(text):
+                if ch != "{":
+                    continue
+                depth = 0
+                for j in range(i, len(text)):
+                    if text[j] == "{":
+                        depth += 1
+                    elif text[j] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            candidate = text[i:j+1]
+                            try:
+                                return json.loads(candidate)
+                            except json.JSONDecodeError:
+                                # try python literal fallback
+                                try:
+                                    return ast.literal_eval(candidate)
+                                except Exception:
+                                    # continue scanning for next
+                                    # balanced region
+                                    break
+            return None
+
+        # marker-based: take the last marker-delimited block if any
+        matches = list(re.finditer(r'<<JSON_START>>(.*?)<<JSON_END>>',
+                                   llm_output, re.S))
+        candidate = None
+        if matches:
+            candidate = matches[-1].group(1).strip()
+
+        if candidate:
+            try:
+                result = json.loads(candidate)
+            except json.JSONDecodeError:
+                try:
+                    result = ast.literal_eval(candidate)
+                except Exception:
+                    try:
+                        result = json.loads(candidate.replace("'", '"'))
+                    except Exception as e:
+                        print("Failed to parse candidate from markers:", e)
+                        quit()
+        else:
+            # fallback: balanced-brace extractor
+            # (your existing extract_first_json)
+            result = extract_first_json(llm_output)
+            if result is None:
+                # last-resort naive region
+                start = llm_output.find("{")
+                end = llm_output.rfind("}")
+                if start == -1 or end == -1 or end < start:
+                    print(f"Could not find JSON object in LLM output: {
+                        llm_output!r}")
+                    quit()
+                candidate = llm_output[start:end + 1]
+                try:
+                    result = json.loads(candidate)
+                except Exception:
+                    try:
+                        result = ast.literal_eval(candidate)
+                    except Exception as e:
+                        print("Failed to parse candidate:", e)
+                        quit()
+
+        result = extract_first_json(llm_output)
+        if result is None:
+            # last resort: try naive single-quote -> double-quote replacement
+            # on the first { .. } region found by simple find/rfind
+            start = llm_output.find("{")
+            end = llm_output.rfind("}")
+            if start == -1 or end == -1 or end < start:
+                print(f"Could not find JSON object in LLM output: {
+                    llm_output!r}")
+                quit()
+            candidate = llm_output[start:end + 1]
+            try:
+                result = json.loads(candidate.replace("'", '"'))
+            except Exception as alert:
+                print("Failed to parse candidate as JSON/Python literal",
+                      f"Error: {alert},\nFrom: {candidate!r}")
+                quit()
 
     name = result.get("function_name")
     if name not in funcs.FUNC_DISPATCH:
