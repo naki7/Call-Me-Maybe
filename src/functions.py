@@ -1,6 +1,5 @@
 import math
 import re
-from typing import Any
 
 
 def add_numbers(a: float, b: float) -> float:
@@ -11,16 +10,16 @@ def greet(name: str) -> str:
     return f"Hello, {name}!"
 
 
-def reverse_string(string: str) -> str:
-    return string[::-1]
+def reverse_string(s: str) -> str:
+    return s[::-1]
 
 
 def square_root(a: float) -> float:
     return math.sqrt(float(a))
 
 
-def string_to_regex(origin: str, regex: str, replacement: str) -> str:
-    return re.sub(regex, replacement, origin)
+def string_to_regex(source_string: str, regex: str, replacement: str) -> str:
+    return re.sub(regex, replacement, source_string)
 
 
 FUNC_DISPATCH = {

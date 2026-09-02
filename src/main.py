@@ -239,19 +239,39 @@ def process_prompts(prompt: str, registry: list[dict[str, Any]],
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("Run: python3 -m src.main <path_to_json_file>")
+    if len(sys.argv) != 3:
+        print("Run: python3 -m src.main <path_to_function_file>",
+              "<path_to_test_file")
         sys.exit(1)
 
-    path = sys.argv[1]
-    registry = json_to_obj(path)
+    func_path = sys.argv[1]
+    test_path = sys.argv[2]
+    registry = json_to_obj(func_path)
+    tests = json_to_obj(test_path)
     model = Small_LLM_Model()
+    all_results = []
 
-    # EXAMPLE
-    sample_prompt = "What is the sum of 2 and 3?"
-    result = process_prompts(sample_prompt, registry, model)
-    obj_to_json(result)
-    print(json.dumps(result, indent=2))
+    for test in tests:
+        prompt = test["prompt"]
+        result = process_prompts(prompt, registry, model)
+
+        assert "function_name" in result
+        assert "arguments" in result
+        assert "result" in result
+
+        func_def = next(
+            func for func in registry
+            if func["name"] == result["function_name"]
+        )
+
+        assert set(result["arguments"].keys()) == set(
+            func_def["parameters"].keys())
+
+        print(prompt)
+        print(result)
+        all_results.append(result)
+    obj_to_json({"results": all_results})
+    print(json.dumps(all_results, indent=2))
 
 
 if __name__ == '__main__':
