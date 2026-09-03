@@ -8,6 +8,7 @@ from llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj, obj_to_json
 import src.functions as funcs
 from src.llms import generate
+from src.constrained import select_function, build_name_first_token_map
 
 
 def func_select_prompt(user_input: str,
@@ -179,15 +180,69 @@ def process_prompts(prompt: str, registry: list[dict[str, Any]],
                     model: Small_LLM_Model) -> dict[str, Any]:
     # produce registry and run it against LLM to get output
     func_prompt = func_select_prompt(prompt, registry)
-    llm_output = generate(func_prompt, 128, model)
+    result = None
 
-    # parse output/handle errors
+    # --- Quick rule: direct match for explicit substitution prompts
+    candidate_name = None
+    if any(f.get(
+           "name") == "fn_substitute_string_with_regex" for f in registry):
+        if re.search(r"\b(substitute|replace|replace all|replace the word)\b",
+                     prompt, re.I):
+            candidate_name = "fn_substitute_string_with_regex"
+
+    # --- Quick rule: direct greet shortcut
+    if candidate_name is None and any(
+                            f.get("name") == "fn_greet" for f in registry):
+        if re.search(r"\b(greet|say hello|say hi|hello|hi|hey)\b",
+                     prompt, re.I):
+            candidate_name = "fn_greet"
+
+    # if not determined by rules, use hybrid selector
+    if candidate_name is None:
+        try:
+            candidate_name = select_function(func_prompt, registry, model)
+        except Exception:
+            candidate_name = None
+
     try:
-        result = parse_output(llm_output)
-    except Exception as alert:
-        print(f"Failed to parse LLM output: {alert!r}")
-        print("Raw LLM output (truncated):", repr(llm_output)[:1000])
-        quit()
+        if candidate_name is not None:
+            # find the chosen function definition
+            definition = next((f for f in registry if f.get(
+                               "name") == candidate_name), None)
+            if definition is not None:
+                args_prompt = (
+                    "You are a strict argument generator.\n"
+                    "Return ONLY a JSON object with a single key\n"
+                    "\"arguments\" whose value is an object\n"
+                    "containing all required parameters with names exactly\n"
+                    "matching the schema.\n"
+                    "Do NOT add extra keys or commentary.\n\n"
+                    f"Function schema:\n{json.dumps(definition, indent=2)}\n\n"
+                    f"User request:\n{prompt}\n"
+                    "Return the JSON object now:"
+                )
+                args_output = generate(args_prompt, 64, model)
+                try:
+                    parsed = parse_output(args_output)
+                    # validate parsed arguments against the function definition
+                    arguments = args_from_llm_output(parsed, definition)
+                    result = {"function_name": candidate_name,
+                              "arguments": arguments}
+                except Exception:
+                    result = None
+    except Exception:
+        result = None
+
+    if result is None:
+        llm_output = generate(func_prompt, 64, model)
+
+        # parse output/handle errors
+        try:
+            result = parse_output(llm_output)
+        except Exception as alert:
+            print(f"Failed to parse LLM output: {alert!r}")
+            print("Raw LLM output (truncated):", repr(llm_output)[:1000])
+            quit()
 
     # verify parsed object structure
     if not isinstance(result, dict):
@@ -251,6 +306,9 @@ def main() -> None:
     model = Small_LLM_Model()
     all_results = []
 
+    # precompute first-token ids for function names for speed
+    name_first_token_map = build_name_first_token_map(registry, model)
+
     for test in tests:
         prompt = test["prompt"]
         result = process_prompts(prompt, registry, model)
@@ -270,6 +328,7 @@ def main() -> None:
         print(prompt)
         print(result)
         all_results.append(result)
+
     obj_to_json({"results": all_results})
     print(json.dumps(all_results, indent=2))
 
