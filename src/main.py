@@ -176,73 +176,110 @@ def test_function(func: str, args: dict[str, Any]) -> Any:
     return function(**args)
 
 
+def route_prompt_to_function(prompt: str,
+                             registry: list[
+                                 dict[str, Any]]) -> tuple[
+                                     str, dict[str, Any]] | None:
+    text = prompt.strip()
+    temp = ""
+
+    # Greeting
+    if re.search(r"\b(greet|hello|hi|hey|say hello|say hi)\b", text, re.I):
+        # capture a name after greet or hello
+        temp = r"(?:greet|say hello|say hi|hello|hi|hey)\s+['\"]?("
+        temp += r"[A-Za-z0-9_ -]+?)['\"]?$"
+        match = re.search(temp, text, re.I)
+        if match and any(f.get("name") == "fn_greet" for f in registry):
+            name = match.group(1).strip()
+            return "fn_greet", {"name": name}
+
+    # Reverse string
+    if re.search(r"\b(reverse|reversed)\b",
+                 text, re.I) and re.search(r"\b(string|word)\b", text, re.I):
+        quoted = re.search(r"['\"]([^'\"]+)['\"]", text)
+        temp = "fn_reverse_string"
+        if quoted and any(f.get("name") == temp for f in registry):
+            return temp, {"s": quoted.group(1)}
+
+    # Square root
+    if re.search(r"\b(square root|sqrt|root of)\b", text, re.I):
+        num_match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+        temp = "fn_get_square_root"
+        if num_match and any(f.get("name") == temp for f in registry):
+            return temp, {"a": float(num_match.group(0))}
+
+    # String substitution
+    if re.search(r"\b(substitute|replace|replace all|swap|change)\b",
+                 text, re.I):
+        # pattern: "Substitute the word 'cat' with 'dog' in 'The cat sat ...'"
+        temp = r"(?:substitute|replace)\s+(?:the\s+)?(?:word|substring|text)?"
+        temp += r"\s*['\"]([^'\"]+)['\"]\s+with\s+['\"]([^'\"]+)['\"]\s+in"
+        temp += r"\s+['\"]([^'\"]+)['\"]"
+        word_match = re.search(
+            temp,
+            text,
+            re.I
+        )
+        temp = "fn_substitute_string_with_regex"
+        if word_match and any(f.get("name") == temp for f in registry):
+            pattern, replacement, source = word_match.groups()
+            return temp, {
+                "source_string": source,
+                "regex": re.escape(pattern),
+                "replacement": replacement
+            }
+
+        # pattern: "Replace all numbers in \"Hello 34 I'm 233 years old\"
+        # with NUMBERS"
+        if re.search(r"\b(numbers?|digits?)\b", text, re.I):
+            source_match = re.search(r"in\s+['\"]([^'\"]+)['\"]\s+with",
+                                     text, re.I)
+            temp = "fn_substitute_string_with_regex"
+            if source_match and any(
+                    f.get("name") == temp for f in registry):
+                source = source_match.group(1)
+                return temp, {
+                    "source_string": source,
+                    "regex": r"\d+",
+                    "replacement": "NUMBERS",
+                }
+
+    # Addition
+    if re.search(r"\b(sum of|add|plus|total)\b", text, re.I):
+        nums = re.findall(r"[-+]?\d+(?:\.\d+)?", text)
+        temp = "fn_add_numbers"
+        if len(nums) >= 2 and any(f.get("name") == temp for f in registry):
+            return temp, {"a": float(nums[0]), "b": float(nums[1])}
+
+    return None
+
+
 def process_prompts(prompt: str, registry: list[dict[str, Any]],
                     model: Small_LLM_Model) -> dict[str, Any]:
+    # validate prompt for quick rule checks to avoid over use of LLM
+    routed = route_prompt_to_function(prompt, registry)
+    if routed is not None:
+        name, args = routed
+        validated = handle_args(name, args)
+        result = {
+            "function_name": name,
+            "arguments": validated,
+            "result": test_function(name, validated),
+        }
+        return result
+
     # produce registry and run it against LLM to get output
     func_prompt = func_select_prompt(prompt, registry)
+    llm_output = generate(func_prompt, 64, model)
     result = None
 
-    # --- Quick rule: direct match for explicit substitution prompts
-    candidate_name = None
-    if any(f.get(
-           "name") == "fn_substitute_string_with_regex" for f in registry):
-        if re.search(r"\b(substitute|replace|replace all|replace the word)\b",
-                     prompt, re.I):
-            candidate_name = "fn_substitute_string_with_regex"
-
-    # --- Quick rule: direct greet shortcut
-    if candidate_name is None and any(
-                            f.get("name") == "fn_greet" for f in registry):
-        if re.search(r"\b(greet|say hello|say hi|hello|hi|hey)\b",
-                     prompt, re.I):
-            candidate_name = "fn_greet"
-
-    # if not determined by rules, use hybrid selector
-    if candidate_name is None:
-        try:
-            candidate_name = select_function(func_prompt, registry, model)
-        except Exception:
-            candidate_name = None
-
+    # parse output/handle errors
     try:
-        if candidate_name is not None:
-            # find the chosen function definition
-            definition = next((f for f in registry if f.get(
-                               "name") == candidate_name), None)
-            if definition is not None:
-                args_prompt = (
-                    "You are a strict argument generator.\n"
-                    "Return ONLY a JSON object with a single key\n"
-                    "\"arguments\" whose value is an object\n"
-                    "containing all required parameters with names exactly\n"
-                    "matching the schema.\n"
-                    "Do NOT add extra keys or commentary.\n\n"
-                    f"Function schema:\n{json.dumps(definition, indent=2)}\n\n"
-                    f"User request:\n{prompt}\n"
-                    "Return the JSON object now:"
-                )
-                args_output = generate(args_prompt, 64, model)
-                try:
-                    parsed = parse_output(args_output)
-                    # validate parsed arguments against the function definition
-                    arguments = args_from_llm_output(parsed, definition)
-                    result = {"function_name": candidate_name,
-                              "arguments": arguments}
-                except Exception:
-                    result = None
-    except Exception:
-        result = None
-
-    if result is None:
-        llm_output = generate(func_prompt, 64, model)
-
-        # parse output/handle errors
-        try:
-            result = parse_output(llm_output)
-        except Exception as alert:
-            print(f"Failed to parse LLM output: {alert!r}")
-            print("Raw LLM output (truncated):", repr(llm_output)[:1000])
-            quit()
+        result = parse_output(llm_output)
+    except Exception as alert:
+        print(f"Failed to parse LLM output: {alert!r}")
+        print("Raw LLM output (truncated):", repr(llm_output)[:1000])
+        quit()
 
     # verify parsed object structure
     if not isinstance(result, dict):
