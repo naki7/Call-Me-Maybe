@@ -211,38 +211,46 @@ def route_prompt_to_function(prompt: str,
     # String substitution
     if re.search(r"\b(substitute|replace|replace all|swap|change)\b",
                  text, re.I):
-        # pattern: "Substitute the word 'cat' with 'dog' in 'The cat sat ...'"
-        temp = r"(?:substitute|replace)\s+(?:the\s+)?(?:word|substring|text)?"
-        temp += r"\s*['\"]([^'\"]+)['\"]\s+with\s+['\"]([^'\"]+)['\"]\s+in"
-        temp += r"\s+['\"]([^'\"]+)['\"]"
-        word_match = re.search(
-            temp,
-            text,
-            re.I
-        )
         temp = "fn_substitute_string_with_regex"
-        if word_match and any(f.get("name") == temp for f in registry):
-            pattern, replacement, source = word_match.groups()
-            return temp, {
-                "source_string": source,
-                "regex": re.escape(pattern),
-                "replacement": replacement
-            }
 
-        # pattern: "Replace all numbers in \"Hello 34 I'm 233 years old\"
-        # with NUMBERS"
-        if re.search(r"\b(numbers?|digits?)\b", text, re.I):
-            source_match = re.search(r"in\s+['\"]([^'\"]+)['\"]\s+with",
-                                     text, re.I)
-            temp = "fn_substitute_string_with_regex"
-            if source_match and any(
-                    f.get("name") == temp for f in registry):
-                source = source_match.group(1)
+        # pattern: "Substitute the word 'cat' with 'dog' in 'The cat sat on
+        # the mat with another cat'"
+        if any(f.get("name") == temp for f in registry):
+            # first: capture the pattern and replacement
+            word_match = re.search(
+                r"(?:substitute|replace)\s+(?:the\s+)?(?:word|substring|text)?\s*"
+                r"['\"](?P<pattern>[^'\"]+)['\"]\s+with\s+"
+                r"['\"](?P<replacement>[^'\"]+)['\"]\s+in\s+"
+                r"['\"](?P<source>[^'\"]+)['\"]",
+                text,
+                re.I
+            )
+            if word_match:
+                pattern = word_match.group("pattern")
+                replacement = word_match.group("replacement")
+                source = word_match.group("source")
                 return temp, {
                     "source_string": source,
-                    "regex": r"\d+",
-                    "replacement": "NUMBERS",
+                    "regex": re.escape(pattern),
+                    "replacement": replacement
                 }
+
+            # pattern: "Replace all numbers in \"Hello 34 I'm 233 years old\"
+            # with NUMBERS"
+            if re.search(r"\b(numbers?|digits?)\b", text, re.I):
+                source_match = re.search(
+                    r'in\s+(?P<quote>["\'])(?P<source>.*?)(?P=quote)\s+with',
+                    text,
+                    re.I | re.S
+                )
+                if source_match and any(f.get(
+                        "name") == temp for f in registry):
+                    source = source_match.group("source")
+                    return temp, {
+                        "source_string": source,
+                        "regex": r"\d+",
+                        "replacement": "NUMBERS",
+                    }
 
     # Addition
     if re.search(r"\b(sum of|add|plus|total)\b", text, re.I):
