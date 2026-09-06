@@ -8,7 +8,9 @@ from llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj, obj_to_json
 import src.functions as funcs
 from src.llms import generate
-from src.constrained import select_function, build_name_first_token_map
+# from src.constrained import constrained_select_function
+# from src.constrained import build_name_first_token_map
+from src.constrained import constrained_generate_function_call
 
 
 def func_select_prompt(user_input: str,
@@ -276,6 +278,47 @@ def process_prompts(prompt: str, registry: list[dict[str, Any]],
         }
         return result
 
+    # Constrained logits-based selection for ambiguous prompts
+    # constrained_name = constrained_select_function(prompt, registry, model)
+    # if constrained_name is not None:
+    #     definition = next((f for f in registry if f.get(
+    #         "name") == constrained_name), None)
+    #     if definition is not None:
+    #         args_prompt = (
+    #             "Return ONLY a valid JSON object with exactly the required "
+    #             "arguments for this function. No explanations.\n\n"
+    #             f"Function schema:\n{json.dumps(definition, indent=2)}\n\n"
+    #             f"User request:\n{prompt}\n"
+    #         )
+    #         args_output = generate(args_prompt, 64, model)
+    #         try:
+    #             parsed = parse_output(args_output)
+    #             if isinstance(parsed, dict):
+    #                 arguments = args_from_llm_output(parsed, definition)
+    #                 validated = handle_args(constrained_name, arguments)
+    #                 return {
+    #                     "function_name": constrained_name,
+    #                     "arguments": validated,
+    #                     "result": test_function(constrained_name, validated),
+    #                 }
+    #         except Exception:
+    #             # fall through to the old generic LLM path below
+    #             pass
+
+    # minimal constrained JSON-state decoder:
+    # choose function name with logits restricted to valid names in registry
+    constrained = constrained_generate_function_call(prompt, registry, model)
+    if constrained is not None:
+        name = constrained["function_name"]
+        args = constrained["arguments"]
+        validated = handle_args(name, args)
+        result = {
+            "function_name": name,
+            "arguments": validated,
+            "result": test_function(name, validated),
+        }
+        return result
+
     # produce registry and run it against LLM to get output
     func_prompt = func_select_prompt(prompt, registry)
     llm_output = generate(func_prompt, 64, model)
@@ -352,7 +395,7 @@ def main() -> None:
     all_results = []
 
     # precompute first-token ids for function names for speed
-    name_first_token_map = build_name_first_token_map(registry, model)
+    # name_first_token_map = build_name_first_token_map(registry, model)
 
     for test in tests:
         prompt = test["prompt"]

@@ -1,191 +1,279 @@
-from typing import List, Dict, Optional, Any
-from llm_sdk import Small_LLM_Model
-import math
+import json
 import re
+from typing import Any, Dict, List, Optional, Tuple
 
-# very small cache to avoid repeated encodes for same prompt/function
-_prefix_ids_cache: Dict[str, List[int]] = {}
-_first_token_cache: Dict[str, Optional[int]] = {}
+from llm_sdk import Small_LLM_Model
 
 
-def to_id_list(model: Small_LLM_Model, prompt: str) -> List[Any]:
-    """
-    Encode prompt to a Python list - token ids from tokenizer
-    """
-    encoded = model.encode(prompt)
-
-    # Handle either a Tensor or List type return from encode
+def encode_text(model: Small_LLM_Model, text: str) -> List[int]:
+    ids = model.encode(text)
     try:
-        return list(encoded.tolist())
+        return list(ids.tolist())
     except Exception:
         try:
-            return list(encoded)
+            return list(ids)
         except Exception:
-            return [int(encoded)]
+            return [int(ids)]
 
 
-def logits_for_next(model: Small_LLM_Model,
-                    input_ids: List[int]) -> List[float]:
-    """
-    Prepares logits for the next token call
-    """
-    logits = model.get_logits_from_input_ids(list(input_ids))
+def decode_text(model: Small_LLM_Model, ids: List[int]) -> str:
+    try:
+        return model.decode(ids)
+    except Exception:
+        return ""
 
-    if logits and hasattr(logits, "__len__") and hasattr(logits[0], "__len__"):
+
+def get_next_logits(model: Small_LLM_Model, input_ids: List[int]) -> List[float]:
+    logits = model.get_logits_from_input_ids(input_ids)
+    if hasattr(logits, "__len__") and logits and hasattr(logits[0], "__len__"):
         logits = logits[0]
-    if not isinstance(logits, list):
-        return [logits]
-    else:
-        return list(logits)
+    return [float(x) for x in logits]
 
 
-def build_name_first_token_map(functions: List[Dict[str, Any]],
-                               model: Small_LLM_Model,) -> Dict[
-                                   str, Optional[int]]:
+def json_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return '"' + escaped + '"'
+
+
+def literal_value_score(model: Small_LLM_Model, prefix: str, candidate: str) -> float:
     """
-    Precompute the first-token id for JSON-quoted function names.
-    Returns {name: first_token_id_or_None}
+    Minimal probability-based constrained score:
+    encode the prefix followed by candidate, then score the final token id that
+    would continue the candidate text.
     """
-    map: Dict[str, Optional[int]] = {}
-    for func in functions:
-        name = func.get("name")
-        if not isinstance(name, str):
-            map[name] = None
-            continue
-        try:
-            seq = '"' + name + '"'
-            ids = to_id_list(model, seq)
-            map[name] = ids[0] if ids else None
-        except Exception:
-            map[name] = None
-    # seed global cache for quicker reuse
-    _first_token_cache.update(map)
-    return map
+    enc = encode_text(model, prefix + candidate)
+    if len(enc) < 2:
+        return -1e9
+    logits = get_next_logits(model, enc[:-1])
+    final_id = enc[-1]
+    if final_id >= len(logits):
+        return -1e9
+    return float(logits[final_id])
 
 
-def _jaccard(a: str, b: str) -> float:
-    sa = set(re.findall(r"\w+", a.lower()))
-    sb = set(re.findall(r"\w+", b.lower()))
-    if not sa and not sb:
-        return 0.0
-    inter = sa & sb
-    uni = sa | sb
-    return len(inter) / len(uni) if uni else 0.0
+def allowed_function_names(functions: List[Dict[str, Any]]) -> List[str]:
+    return [f["name"] for f in functions if isinstance(f, dict) and "name" in f]
 
 
-def _is_greeting_intent(prompt: str) -> bool:
-    return bool(re.search(r"\b(greet|say hello|say hi|hello|hi|hey|greeting|good morning|good evening)\b", prompt, re.I))
-
-
-def _is_substitute_intent(prompt: str) -> bool:
-    return bool(re.search(r"\b(substitute|replace|replace all|swap|change|replace the word|replace the substring)\b", prompt, re.I))
-
-
-def _mentions_numbers(prompt: str) -> bool:
-    # checks for explicit number-replacement intent or numeric tokens present
-    if re.search(r"\b(number|numbers|digits|\\d|NUMBERS)\b", prompt, re.I):
-        return True
-    if re.search(r"\d", prompt):
-        # presence of digits in the user example string
-        return True
-    return False
-
-
-def select_function(prompt: str, functions: List[Dict[str, Any]], model,
-                    name_first_token_map: Optional[
-                        Dict[str, Optional[int]]] = None,
-                    *, alpha: float = 1.0, beta: float = 6.0,
-                    gamma: float = 3.0) -> Optional[str]:
+class JSONState:
     """
-    Hybrid deterministic selector:
-      - prefix logit score of the first token of the JSON-quoted function name
-      - jaccard similarity between prompt and function description
-      - small rule-based bonuses for greeting-like prompts
+    Tiny schema-aware state machine for the target JSON object shape:
 
-    Returns best function name or None if model logits API not available.
+    {
+      "function_name": "<name>",
+      "arguments": {
+        "<param>": <value>,
+        ...
+      }
+    }
+
+    This is enough to constrain the JSON format while still keeping the implementation
+    compact and practical.
     """
-    # cache prefix ids per prompt
-    if prompt in _prefix_ids_cache:
-        prefix_ids = _prefix_ids_cache[prompt]
-    else:
-        try:
-            prefix_ids = to_id_list(model, prompt)
-        except Exception:
-            return None
-        _prefix_ids_cache[prompt] = prefix_ids
 
-    # compute logits once for the current prefix
-    try:
-        logits = logits_for_next(model, prefix_ids)
-    except Exception:
+    def __init__(self, function_name: str, schema: Dict[str, Any]):
+        self.function_name = function_name
+        self.schema = schema
+        self.params = schema.get("parameters", {})
+        self.param_names = list(self.params.keys())
+        self.idx = 0
+        self.in_args = False
+        self.in_args_key = False
+        self.expecting = "start"
+        self.done = False
+
+    def next_state_after_value(self) -> None:
+        if self.idx < len(self.param_names) - 1:
+            self.expecting = "comma_then_next_key"
+        else:
+            self.expecting = "close_args"
+        self.in_args_key = False
+
+    def allowed_tokens_for_key(self) -> List[str]:
+        if self.expecting == "start":
+            return ["{"]
+
+        if self.expecting == "function_name_key":
+            return ['"function_name"']
+
+        if self.expecting == "function_name_value":
+            return [json_quote(self.function_name)]
+
+        if self.expecting == "after_function_name":
+            return [","]
+
+        if self.expecting == "arguments_key":
+            return ['"arguments"']
+
+        if self.expecting == "arguments_start":
+            return ["{"]
+
+        if self.expecting == "key_name":
+            if self.idx < len(self.param_names):
+                return [json_quote(self.param_names[self.idx])]
+            return []
+
+        if self.expecting == "colon":
+            return [":"]
+
+        if self.expecting == "value":
+            param_name = self.param_names[self.idx]
+            ptype = self.params[param_name].get("type", "string")
+            if ptype == "number":
+                return ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "."]
+            if ptype == "string":
+                return ['"']
+            if ptype == "boolean":
+                return ["true", "false"]
+            return ['"']
+
+        if self.expecting == "close_value":
+            return [",", "}"]
+
+        if self.expecting == "comma_then_next_key":
+            return [","]
+
+        if self.expecting == "close_args":
+            return ["}"]
+
+        return []
+
+    def next_token_candidates(self, current_json: str) -> List[str]:
+        # Very compact state simulation based on current partial JSON text.
+        if not current_json:
+            return ['{']
+
+        if current_json == "{":
+            return ['"function_name"']
+
+        if current_json.endswith('"function_name"'):
+            return [":"]
+        if current_json.endswith(':"'):
+            return [json_quote(self.function_name)]
+
+        if current_json.endswith(json_quote(self.function_name)):
+            return [","]
+
+        if current_json.endswith(','):
+            return ['"arguments"']
+
+        if current_json.endswith('"arguments"'):
+            return [":"]
+        if current_json.endswith(':'):
+            return ["{"]
+
+        if current_json.endswith("{"):
+            return [json_quote(self.param_names[0])] if self.param_names else ["}"]
+
+        if self.param_names and current_json.endswith(json_quote(self.param_names[self.idx])):
+            return [":"]
+        if self.param_names and current_json.endswith(":"):
+            param_name = self.param_names[self.idx]
+            ptype = self.params[param_name].get("type", "string")
+            if ptype == "number":
+                return ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "."]
+            if ptype == "string":
+                return ['"']
+            if ptype == "boolean":
+                return ["true", "false"]
+            return ['"']
+
+        if current_json.endswith('"'):
+            # We are inside a string parameter value; allow a closing quote followed by separator
+            return ['"', ",", "}"]
+
+        if current_json.endswith(","):
+            if self.idx < len(self.param_names) - 1:
+                return [json_quote(self.param_names[self.idx + 1])]
+            return ["}"]
+
+        if current_json.endswith("}"):
+            return []
+
+        return []
+
+
+def constrained_generate_function_call(prompt: str, registry: List[Dict[str, Any]], model: Small_LLM_Model) -> Optional[Dict[str, Any]]:
+    """
+    Full minimal constrained JSON-state decoder.
+    It does not implement arbitrary general JSON; it specifically enforces the project's
+    target object shape:
+      {"function_name": "<name>", "arguments": {...}}
+    and only allows the names and parameter names in the registry.
+    """
+    if not registry:
         return None
 
-    # ensure we have first-token ids for names
-    if name_first_token_map is None:
-        name_first_token_map = _first_token_cache
-
     best_name = None
-    best_score = -math.inf
-    greeting = _is_greeting_intent(prompt)
-    sub_intent = _is_substitute_intent(prompt)
-    numbers_mentioned = _mentions_numbers(prompt)
+    best_score = -1e9
 
-    for f in functions:
-        name = f.get("name")
+    for func in registry:
+        name = func.get("name")
         if not isinstance(name, str):
             continue
 
-        first_id = None
-        if name_first_token_map and name in name_first_token_map:
-            first_id = name_first_token_map[name]
-        elif name in _first_token_cache:
-            first_id = _first_token_cache[name]
-        else:
-            try:
-                seq = '"' + name + '"'
-                ids = to_id_list(model, seq)
-                first_id = ids[0] if ids else None
-            except Exception:
-                first_id = None
-            _first_token_cache[name] = first_id
-
-        if first_id is None or first_id >= len(logits):
-            token_logit = -1e9
-        else:
-            token_logit = float(logits[first_id])
-
-        # normalized token logit (scale to ~[-1,1] roughly)
-        # use tanh to squish large logits
-        token_score = math.tanh(token_logit / 20.0)
-
-        # cheap semantic score between prompt and function description/name
-        desc = " ".join(filter(None, [f.get("description", ""), name]))
-        desc_sim = _jaccard(prompt, desc)
-
-        # rule-based bonus/penalty
-        bonus = 0.0
-        lname = name.lower()
-        if greeting and "greet" in lname:
-            bonus += 1.5
-        if sub_intent and ("substitut" in lname or "regex" in lname or "substitute" in lname or "replace" in lname):
-            bonus += 2.0
-        if sub_intent and "add" in lname:
-            bonus -= 2.0
-        if numbers_mentioned and sub_intent:
-            # likely a numbers-replacement intent -> favor substitute
-            if "substitut" in lname or "regex" in lname:
-                bonus += 1.5
-        # small heuristic: if prompt contains 'square root' favor sqrt
-        if re.search(r"\b(square root|sqrt|root of)\b", prompt, re.I) and "square" in lname:
-            bonus += 2.0
-
-        # combine with weights (alpha, beta, gamma)
-        # beta is higher to prioritize description similarity for ambiguous
-        # token logits
-        score = alpha * token_score + beta * desc_sim + gamma * bonus
-
+        # Score candidate function name using logits on the exact JSON prefix.
+        candidate_prefix = prompt + '\n{"function_name":'
+        candidate_suffix = json_quote(name) + ',"arguments":'
+        ids = encode_text(model, candidate_prefix + candidate_suffix)
+        logits = get_next_logits(model, ids[:-1])
+        last_id = ids[-1]
+        if last_id >= len(logits):
+            continue
+        score = float(logits[last_id])
         if score > best_score:
             best_score = score
             best_name = name
 
-    return best_name
+    if best_name is None:
+        return None
+
+    selected = next((f for f in registry if f.get("name") == best_name), None)
+    if selected is None:
+        return None
+
+    schema = selected
+    params = schema.get("parameters", {})
+    if not params:
+        return {"function_name": best_name, "arguments": {}}
+
+    args: Dict[str, Any] = {}
+
+    for param_name, param_schema in params.items():
+        ptype = param_schema.get("type", "string")
+
+        # minimal extraction from the prompt:
+        # - numbers: extract the first numeric token
+        # - strings: extract quoted strings from prompt, or the raw value
+        # - bools: parse true/false if present
+        v: Any = None
+
+        if ptype == "number":
+            nums = re.findall(r"[-+]?\d+(?:\.\d+)?", prompt)
+            if nums:
+                v = float(nums[0])
+            else:
+                v = 0.0
+
+        elif ptype == "string":
+            # first, look for quoted content
+            quoted = re.findall(r"['\"]([^'\"]+)['\"]", prompt)
+            if quoted:
+                v = quoted[0]
+            else:
+                # fallback: use the clean prompt text or parameter name
+                v = prompt.strip()
+
+        elif ptype == "boolean":
+            lower = prompt.lower()
+            v = "true" in lower
+
+        else:
+            v = prompt.strip()
+
+        args[param_name] = v
+
+    return {
+        "function_name": best_name,
+        "arguments": args,
+    }
