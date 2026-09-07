@@ -30,18 +30,7 @@ def json_to_obj(file: str) -> Any:
 def obj_to_json(object: dict[Any, Any]) -> None:
     check_directory()
 
-    try:
-        with open(BASE_FILE, 'x', encoding="utf-8") as file:
-            json.dump(object, file, indent=2)
-            file.write('\n')
-        print(f'{BASE_FILE} successfully written.')
-    except FileExistsError:
-        try:
-            with open(BACKUP_FILE, 'x', encoding="utf-8") as file:
-                json.dump(object, file, indent=2)
-                file.write('\n')
-            print(f'{BASE_FILE} already exists. {BACKUP_FILE} successfully',
-                  'written')
-        except FileExistsError:
-            print(f'Both {BASE_FILE} file and {BACKUP_FILE} file exist',
-                  '\nRemove or rename them before rerunning.')
+    with open(BASE_FILE, 'w', encoding="utf-8") as file:
+        json.dump(object["results"], file, indent=2)
+        file.write('\n')
+    print(f'{BASE_FILE} successfully written.')

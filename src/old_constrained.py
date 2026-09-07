@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from llm_sdk import Small_LLM_Model
+from llm_sdk.llm_sdk import Small_LLM_Model
 
 # # very small cache to avoid repeated encodes for same prompt/function
 # _prefix_ids_cache: Dict[str, List[int]] = {}

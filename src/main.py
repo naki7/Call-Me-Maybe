@@ -4,7 +4,7 @@ import re
 import ast
 from typing import Any
 
-from llm_sdk import Small_LLM_Model
+from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj, obj_to_json
 import src.functions as funcs
 from src.llms import generate
@@ -109,8 +109,7 @@ def parse_output(llm_output: str) -> dict[str, Any] | None:
             attempt = regions[-1].strip()
 
     if not attempt:
-        raise ValueError(f"Could not find JSON object in LLM output: {
-                         llm_output!r}")
+        raise ValueError(f"Could not find JSON object in LLM output: {llm_output!r}")
 
     try:
         return json.loads(attempt)

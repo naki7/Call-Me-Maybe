@@ -2,7 +2,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from llm_sdk import Small_LLM_Model
+from llm_sdk.llm_sdk import Small_LLM_Model
 
 
 def encode_text(model: Small_LLM_Model, text: str) -> List[int]:
@@ -216,11 +216,12 @@ def constrained_generate_function_call(prompt: str, registry: List[Dict[str, Any
         candidate_prefix = prompt + '\n{"function_name":'
         candidate_suffix = json_quote(name) + ',"arguments":'
         ids = encode_text(model, candidate_prefix + candidate_suffix)
-        logits = get_next_logits(model, ids[:-1])
-        last_id = ids[-1]
+        logits = get_next_logits(model, ids[0][:-1])
+        last_id = ids[0][-1]
         if last_id >= len(logits):
             continue
         score = float(logits[last_id])
+        # print(f"{score} - {name}")
         if score > best_score:
             best_score = score
             best_name = name
