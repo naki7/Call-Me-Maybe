@@ -27,6 +27,7 @@ def get_next_logits(model: Small_LLM_Model, input_ids: List[int]) -> List[float]
     logits = model.get_logits_from_input_ids(input_ids)
     if hasattr(logits, "__len__") and logits and hasattr(logits[0], "__len__"):
         logits = logits[0]
+    # print(decode_text(model, input_ids))
     return [float(x) for x in logits]
 
 
@@ -252,7 +253,10 @@ def constrained_generate_function_call(prompt: str, registry: List[Dict[str, Any
         if ptype == "number":
             nums = re.findall(r"[-+]?\d+(?:\.\d+)?", prompt)
             if nums:
-                v = float(nums[0])
+                if len(args.keys()) == 0:
+                    v = float(nums[0])
+                else:
+                    v = float(nums[1])
             else:
                 v = 0.0
 
@@ -260,7 +264,18 @@ def constrained_generate_function_call(prompt: str, registry: List[Dict[str, Any
             # first, look for quoted content
             quoted = re.findall(r"['\"]([^'\"]+)['\"]", prompt)
             if quoted:
-                v = quoted[0]
+                # print(param_schema)
+                # print(f"_________________________________________{param_name} - {quoted}")
+                if len(quoted) > 1:
+                    i = 0
+                    for key in params:
+                        if key == param_name:
+                            break
+                        else:
+                            i += 1
+                    v = quoted[i]
+                else:
+                    v = quoted[0]
             else:
                 # fallback: use the clean prompt text or parameter name
                 v = prompt.strip()
