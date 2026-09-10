@@ -3,6 +3,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from llm_sdk.llm_sdk import Small_LLM_Model
+from src.json_constrainer import produce_vocab
 
 
 def encode_text(model: Small_LLM_Model, text: str) -> List[int]:
@@ -16,11 +17,11 @@ def encode_text(model: Small_LLM_Model, text: str) -> List[int]:
             return [int(ids)]
 
 
-# def decode_text(model: Small_LLM_Model, ids: List[int]) -> str:
-#     try:
-#         return model.decode(ids)
-#     except Exception:
-#         return ""
+def decode_text(model: Small_LLM_Model, ids: List[int]) -> str:
+    try:
+        return model.decode(ids)
+    except Exception:
+        return ""
 
 
 def get_next_logits(model: Small_LLM_Model, input_ids: List[int]) -> List[float]:
@@ -204,6 +205,9 @@ def constrained_generate_function_call(prompt: str, registry: List[Dict[str, Any
     """
     if not registry:
         return None
+
+    produce_vocab(model)
+    return
 
     best_name = None
     best_score = -1e9

@@ -16,8 +16,8 @@ def process_prompts(prompt: str, registry: list[dict[str, Any]],
         args = constrained["arguments"]
         result = {
             "prompt": prompt,
-            "function_name": name,
-            "arguments": args,
+            "name": name,
+            "parameters": args,
         }
         return result
 
@@ -38,17 +38,18 @@ def main() -> None:
     for test in tests:
         prompt = test["prompt"]
         result = process_prompts(prompt, registry, model)
+        return
 
         assert "prompt" in result
-        assert "function_name" in result
-        assert "arguments" in result
+        assert "name" in result
+        assert "parameters" in result
 
         func_def = next(
             func for func in registry
-            if func["name"] == result["function_name"]
+            if func["name"] == result["name"]
         )
 
-        assert set(result["arguments"].keys()) == set(
+        assert set(result["parameters"].keys()) == set(
             func_def["parameters"].keys())
 
         print(prompt)
