@@ -82,10 +82,11 @@ class JSONState():
 def produce_vocab(model: Small_LLM_Model) -> None:
     vocab_path = model.get_path_to_vocab_file()
     vocab = {}
-    with open(vocab_path, "r") as vocab_file:
+    print(vocab_path)
+    with open(vocab_path, "r", encoding="utf-8") as vocab_file:
         vocab = json.load(vocab_file)
     funcs = ''
-    with open('./data/input/functions_definition.json', 'r') as func_file:
+    with open('./data/input/functions_definition.json', 'r', encoding="utf-8") as func_file:
         funcs = func_file.read()
     # g_funcs = funcs.replace(" ", "Ġ")
     # print(g_funcs)
