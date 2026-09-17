@@ -3,7 +3,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from llm_sdk.llm_sdk import Small_LLM_Model
-from src.json_constrainer import produce_vocab
+from src.json_constrainer import load_vocab
 
 
 def encode_text(model: Small_LLM_Model, text: str) -> List[int]:
@@ -206,7 +206,7 @@ def constrained_generate_function_call(prompt: str, registry: List[Dict[str, Any
     if not registry:
         return None
 
-    produce_vocab(model)
+    load_vocab(model)
     return
 
     best_name = None
