@@ -1,81 +1,23 @@
 import json
+from enum import Enum, auto
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 
 
-class JSONState():
-    def input_ids(self, vocab: dict[str, int], input: list[str]) -> list[int]:
-        ids: list[int | list[int]] = []
-        space_time = 'waiting'
-        for token in input:
-            temp = None
-            temp = vocab.get(token)
-            if temp and space_time == "active":
-                temp = vocab.get(f"Ġ{token}")
-            if temp is None:
-                temp = []
-                stripped = token.strip(".\":,")
-                if token.count("_") > 0:
-                    split = stripped.split("_")
-                    temp.append(vocab.get(split[0]))
-                    for word in split[1:]:
-                        trial = vocab.get(f"_{word}")
-                        if trial is None:
-                            if word == "greet":
-                                temp.append(vocab.get("_g"))
-                                temp.append(vocab.get("reet"))
-                            elif word == "substitute":
-                                temp.append(vocab.get("_sub"))
-                                temp.append(vocab.get("stitute"))
-                            else:
-                                temp.append(vocab.get("_"))
-                                temp.append(vocab.get(word))
-                        else:
-                            temp.append(trial)
-                    temp.append(vocab.get("\""))
-                    temp.append(vocab.get(","))
-                elif token.startswith("\"") or token.endswith(
-                        "\":") or token.endswith(
-                            "\",") or token.endswith("\""):
-                    if space_time == 'waiting':
-                        if token.startswith("\""):
-                            temp.append(vocab.get("\""))
-                            space_time = 'ready'
-                    if token.count(".") == 1:
-                        temp.append(vocab.get(f"Ġ{stripped}"))
-                        temp.append(vocab.get(".\","))
-                        space_time = 'waiting'
-                    else:
-                        temp.append(vocab.get(stripped))
-                        if token.endswith("\"") or token.endswith(
-                                ":") or token.endswith(","):
-                            if token.endswith("\":"):
-                                temp.append(vocab.get("\""))
-                                temp.append(vocab.get(":"))
-                            elif token.endswith("\","):
-                                temp.append(vocab.get("\","))
-                            elif token.endswith("\""):
-                                temp.append(vocab.get("\""))
-                            space_time = 'waiting'
-                        elif space_time == "ready":
-                            space_time = 'active'
-            if isinstance(temp, list):
-                for item in temp:
-                    if item is None:
-                        continue
-                    ids.append(item)
-            elif temp is None:
-                continue
-            else:
-                ids.append(temp)
-        return ids
-
-    def valid_tokens(self, ids: list[int]) -> set[int]:
-        all_tokens: set[int] = {None}
-        for id in ids:
-            all_tokens.add(id)
-        all_tokens.remove(None)
-        return all_tokens
+class JSONState(Enum):
+    EXPECT_OPEN_OBJ = auto()
+    EXPECT_KEY = auto()
+    EXPECT_COLON = auto()
+    EXPECT_FUNCTION_NAME = auto()
+    EXPECT_PARAMETERS_KEY = auto()
+    EXPECT_PARAMETER_KEY = auto()
+    EXPECT_PARAMETER_COLON = auto()
+    EXPECT_STRING = auto()
+    EXPECT_NUMBER = auto()
+    EXPECT_BOOLEAN = auto()
+    EXPECT_COMMA_OR_OBJ_END = auto()
+    EXPECT_COMMA_OR_OBJ_PARAMETERS = auto()
+    DONE = auto()
 
 
 def encode_text(model: Small_LLM_Model, text: str) -> list[list[int]]:
@@ -115,31 +57,50 @@ def load_vocab(model: Small_LLM_Model) -> None:
         vocab = json.load(vocab_file)
 
     examples = [
+        # "{",
+        # "}",
+        # ":",
+        # ",",
+        # "\"",
+        # "\"name\"",
+        # "\"name\":",
+        # "fn_add_numbers",
+        # "\"fn_add_numbers\"",
+        # "{\"name\":\"fn_add_numbers\"}",
+        # "{\"name\": \"fn_add_numbers\"}",
+        # " fn_add_numbers",
+        # "\nfn_add_numbers",
+        # "40",
+        # "40.5",
+        # "-40",
+        # "true",
+        # "false",
+        # "hello",
+        # "hello world",
+        # " hello",
+        # "fn_",
+        # "fn_add",
+        # "\"hello",
+        # "\"hello world",
         "{",
-        "}",
-        ":",
-        ",",
-        "\"",
-        "\"name\"",
-        "\"name\":",
-        "fn_add_numbers",
-        "\"fn_add_numbers\"",
-        "{\"name\":\"fn_add_numbers\"}",
-        "{\"name\": \"fn_add_numbers\"}",
-        " fn_add_numbers",
-        "\nfn_add_numbers",
+        '{"',
+        '{"name',
+        '{"name"',
+        '{"name":',
+        '{"name":"',
+        '{"name":"fn_add_numbers',
+        '{"name":"fn_add_numbers"',
+        '{"name":"fn_add_numbers",',
+        '{"name":"fn_add_numbers","parameters":',
+        '"hello"',
+        '"hello world"',
         "40",
         "40.5",
         "-40",
+        "-40.5",
         "true",
         "false",
-        "hello",
-        "hello world",
-        " hello",
-        "fn_",
-        "fn_add",
-        "\"hello",
-        "\"hello world",
+        "null",
     ]
     script_exp(model, vocab, examples)
 
