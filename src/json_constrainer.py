@@ -34,6 +34,11 @@ class JSON_Machine:
     def __init__(self, model: Small_LLM_Model, registry: list[dict]):
         self.model = model
         self.registry = registry
+        self.curr_func = None
+        self.curr_param = None
+        self.prev_token = None
+        self.expected_sequence = []
+        self.sequence_i = 0
 
     def encode(self, text: str) -> list[int]:
         return encode_text(self.model, text)
@@ -43,41 +48,91 @@ class JSON_Machine:
 
         for text in texts:
             ids = self.encode(text)
-            if ids:
-                valid.add(ids[0])
+            for id in ids:
+                if ids:
+                    valid.add(ids[0])
 
         return valid
+
+    def init_sequence(self, text: str) -> None:
+        self.expected_sequence = self.encode(text)
+        self.sequence_i = 0
+
+    def next_token(self) -> set[int]:
+        if self.sequence_i >= len(self.expected_sequence):
+            return set()
+        return {self.expected_sequence[self.sequence_i]}
+
+    def increment_index(self, curr_token: int) -> bool:
+        if self.sequence_i >= len(self.expected_sequence):
+            return False
+
+        if curr_token != self.expected_sequence[self.sequence_i]:
+            return False
+
+        self.sequence_i += 1
+
+        return self.sequence_i == len(self.expected_sequence)
 
     def verify_sequence(self, gen_ids: list[int], expected: list[int]) -> bool:
         if len(gen_ids) < len(expected):
             return False
         return gen_ids[-len(expected):] == expected
 
-    def valid_tokens(self, state: JSON_State, gen_ids: list[int],
-                     curr_func: dict | None) -> set[int]:
+    def find_func(self, gen_ids: list[int]) -> dict | None:
+        for func in self.registry:
+            func_token = self.encode(f'"{func["name"]}"')
+            if self.verify_sequence(gen_ids, func_token):
+                return func
+
+        return None
+
+    def find_param(self, gen_ids: list[int]) -> dict | None:
+        if self.curr_func is None:
+            return None
+
+        for param_name, param_type in self.curr_func["parameters"].items():
+            param_token = self.encode(f'"{param_name}"')
+            if self.verify_sequence(gen_ids, param_token):
+                return param_type
+
+        return None
+
+    def valid_tokens(self, state: JSON_State, gen_ids: list[int]) -> set[int]:
 
         if state == JSON_State.EXPECT_OPEN_OBJ:
             return self.valid_first_tokens(["{"])
 
         elif state == JSON_State.EXPECT_NAME_KEY:
-            return self.valid_first_tokens(['"name"'])
+            if len(self.expected_sequence) <= 0:
+                self.init_sequence('"name"')
+            return self.next_token()
 
         elif state == JSON_State.EXPECT_COLON:
             return self.valid_first_tokens([":"])
 
         elif state == JSON_State.EXPECT_FUNCTION_NAME:
-            func_names = [func["name"] for func in self.registry]
-            return self.valid_first_tokens(
-                [f'"{func_name}"' for func_name in func_names])
+            # func_names = [func["name"] for func in self.registry]
+            # return self.valid_first_tokens(
+            #     [f'"{func_name}"' for func_name in func_names])
+            if self.curr_func is None:
+                func = self.find_func(gen_ids)
+
+                if func is not None:
+                    self.curr_func = func
+
+            if len(self.expected_sequence) <= 0:
+                self.init_sequence(self.curr_func["name"])
+            return self.next_token()
 
         elif state == JSON_State.EXPECT_PARAMETERS_KEY:
             return self.valid_first_tokens(['"parameters"'])
 
         elif state == JSON_State.EXPECT_PARAMETER_KEY:
-            if curr_func is None:
+            if self.curr_func is None:
                 return set()
 
-            param_names = curr_func["parameters"].keys()
+            param_names = self.curr_func["parameters"].keys()
             return self.valid_first_tokens(
                 [f'"{param}"' for param in param_names])
 
@@ -97,33 +152,36 @@ class JSON_Machine:
         elif state == JSON_State.EXPECT_BOOLEAN:
             return self.valid_first_tokens(["true", "false"])
 
-        elif state == JSON_State.EXPECT_COMMA:
-            return self.valid_first_tokens([","])
-
         elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
             return self.valid_first_tokens([",", "}"])
+
+        elif state == JSON_State.EXPECT_OBJ_END:
+            return self.valid_first_tokens(["}"])
 
         elif state == JSON_State.DONE:
             return set()
 
         return set()
 
-    def update_state(self, state: JSON_State, next_token: int,
+    def update_state(self, state: JSON_State, curr_token: int,
                      gen_ids: list[int]) -> JSON_State:
+        self.prev_token = curr_token
 
         if state == JSON_State.EXPECT_OPEN_OBJ:
             return JSON_State.EXPECT_NAME_KEY
 
         elif state == JSON_State.EXPECT_NAME_KEY:
-            expect_ids = self.encode('"name"')
-            if self.verify_sequence(gen_ids, expect_ids):
+            if self.increment_index(curr_token):
+                self.expected_sequence = []
                 return JSON_State.EXPECT_COLON
 
         elif state == JSON_State.EXPECT_COLON:
             return JSON_State.EXPECT_FUNCTION_NAME
 
         elif state == JSON_State.EXPECT_FUNCTION_NAME:
-            return JSON_State.EXPECT_PARAMETERS_KEY
+            if self.increment_index(curr_token):
+                self.expected_sequence = []
+                return JSON_State.EXPECT_PARAMETERS_KEY
 
         elif state == JSON_State.EXPECT_PARAMETERS_KEY:
             return JSON_State.EXPECT_PARAMETER_KEY
@@ -132,53 +190,59 @@ class JSON_Machine:
             return JSON_State.EXPECT_PARAMETER_COLON
 
         elif state == JSON_State.EXPECT_PARAMETER_COLON:
-            return JSON_State.EXPECT_BOOLEAN
+            if self.curr_param["type"] == "number":
+                return JSON_State.EXPECT_NUMBER
+            if self.curr_param["type"] == "string":
+                return JSON_State.EXPECT_STRING_OPEN
+            if self.curr_param["type"] == "boolean":
+                return JSON_State.EXPECT_BOOLEAN
 
         elif state == JSON_State.EXPECT_STRING_OPEN:
-            pass
+            return JSON_State.IN_STRING
 
-        elif state == JSON_State.EXPECT_MORE_STRING:
+        elif state == JSON_State.IN_STRING:
             pass
 
         elif state == JSON_State.EXPECT_NUMBER:
             pass
 
         elif state == JSON_State.EXPECT_BOOLEAN:
-            return JSON_State.EXPECT_COMMA
-
-        elif state == JSON_State.EXPECT_COMMA:
             return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
 
         elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
+            if self.token_is(curr_token, ","):
+                return JSON_State.EXPECT_PARAMETER_KEY
+
+            elif self.token_is(curr_token, "}"):
+                return JSON_State.EXPECT_OBJ_END
+
+        elif state == JSON_State.EXPECT_OBJ_END:
             return JSON_State.DONE
 
         return state
 
 
 def constrained_decoder(model: Small_LLM_Model, registry: list[dict]) -> list[int]:
-    state = JSON_State.EXPECT_OPEN_OBJ
+    state = JSON_State.EXPECT_FUNCTION_NAME
     state_machine = JSON_Machine(model, registry)
-    curr_func = None
     gen_ids = encode_text(model,
-                          '{"name":"fn_add_numbers","parameters":{"a":{"type":"number"},"b":{"type":"number"}}')
-    print(gen_ids)
+                          '{"name":')
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
         if hasattr(logits, "__len__") and logits and hasattr(logits[0], "__len__"):
             logits = logits[0]
 
-        valid_ids = state_machine.valid_tokens(state, gen_ids, curr_func)
+        valid_ids = state_machine.valid_tokens(state, gen_ids)
         # HANDLE GRACEFULLY LATER
         if not valid_ids:
             print(f"No valid tokens for state {state}")
-        else:
-            for id in range(len(logits)):
-                if id not in valid_ids:
-                    logits[id] = float("-inf")
+        for id in range(len(logits)):
+            if id not in valid_ids:
+                logits[id] = float("-inf")
+        print(state)
+        next_token = max(valid_ids, key=lambda id: logits[id])
 
-            next_token = max(valid_ids, key=lambda id: logits[id])
-
-            gen_ids.append(next_token)
+        gen_ids.append(next_token)
         print(model.decode(gen_ids))
 
         state = state_machine.update_state(state, next_token, gen_ids)
