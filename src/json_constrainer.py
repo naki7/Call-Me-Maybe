@@ -46,6 +46,9 @@ class JSON_Machine:
         self.func_sequences = []
         self.func_seq_i = 0
 
+        self.param_sequences = []
+        self.param_seq_i = 0
+
     def encode(self, text: str) -> list[int]:
         return encode_text(self.model, text)
 
@@ -127,6 +130,44 @@ class JSON_Machine:
 
         return None
 
+    def init_param_seq(self) -> None:
+        self.param_sequences = []
+
+        if self.curr_func is None:
+            return False
+
+        for param in self.curr_func["parameters"]:
+            param_tokens = self.encode(f'"{param}"')
+            self.param_sequences.append(param_tokens)
+
+        self.param_seq_i = 0
+
+    def next_param_token(self) -> set[int]:
+        valid = set()
+
+        for param in self.param_sequences:
+            if self.param_seq_i < len(param):
+                valid.add(param[self.param_seq_i])
+
+        return valid
+
+    def increment_param(self, curr_token: int) -> bool:
+        updated_params = []
+
+        for param in self.param_sequences:
+            if self.param_seq_i < len(param):
+                if param[self.param_seq_i] == curr_token:
+                    updated_params.append(param)
+
+        self.param_sequences = updated_params
+        self.param_seq_i += 1
+
+        if not self.param_sequences:
+            return False
+
+        return all(self.param_seq_i >= len(param)
+                   for param in self.param_sequences)
+
     def find_param(self, gen_ids: list[int]) -> dict | None:
         if self.curr_func is None:
             return None
@@ -158,16 +199,13 @@ class JSON_Machine:
 
         elif state == JSON_State.EXPECT_PARAMETERS_KEY:
             if len(self.expected_sequence) <= 0:
-                self.init_sequence(',"parameters":{')
+                self.init_sequence(',"parameters":')
             return self.next_token()
 
         elif state == JSON_State.EXPECT_PARAMETER_KEY:
-            if self.curr_func is None:
-                return set()
-
-            param_names = self.curr_func["parameters"].keys()
-            return self.valid_first_tokens(
-                [f'"{param}"' for param in param_names])
+            if not self.param_sequences:
+                self.init_param_seq()
+            return self.next_param_token()
 
         elif state == JSON_State.EXPECT_PARAMETER_COLON:
             return self.valid_first_tokens([":"])
@@ -175,8 +213,7 @@ class JSON_Machine:
         elif state == JSON_State.EXPECT_STRING_OPEN:
             return set(self.encode('"'))
 
-        elif state == JSON_State.EXPECT_MORE_STRING:
-            pass
+        elif state == JSON_State.IN_STRING:
             return self.valid_first_tokens(['"'])
 
         elif state == JSON_State.EXPECT_NUMBER:
@@ -200,10 +237,7 @@ class JSON_Machine:
                      gen_ids: list[int]) -> JSON_State:
         self.prev_token = curr_token
 
-        if state == JSON_State.EXPECT_OPEN_OBJ:
-            return JSON_State.EXPECT_NAME_KEY
-
-        elif state == JSON_State.EXPECT_NAME_KEY:
+        if state == JSON_State.EXPECT_NAME_KEY:
             if self.increment_index(curr_token):
                 self.expected_sequence = []
                 self.sequence_i = 0
@@ -226,10 +260,20 @@ class JSON_Machine:
             if self.increment_index(curr_token):
                 self.expected_sequence = []
                 self.sequence_i = 0
-                return JSON_State.EXPECT_PARAMETER_KEY
+                return JSON_State.EXPECT_OPEN_OBJ
+
+        if state == JSON_State.EXPECT_OPEN_OBJ:
+            return JSON_State.EXPECT_PARAMETER_KEY
 
         elif state == JSON_State.EXPECT_PARAMETER_KEY:
-            return JSON_State.EXPECT_PARAMETER_COLON
+            if self.increment_param(curr_token):
+                param = self.find_param(gen_ids)
+
+                if param is not None:
+                    self.curr_param = param
+                    self.param_sequences = []
+                    self.param_seq_i = 0
+                return JSON_State.EXPECT_PARAMETER_COLON
 
         elif state == JSON_State.EXPECT_PARAMETER_COLON:
             if self.curr_param["type"] == "number":
@@ -282,7 +326,6 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str, registry: list[dict
         for id in range(len(logits)):
             if id not in valid_ids:
                 logits[id] = float("-inf")
-        print(state)
         next_token = max(valid_ids, key=lambda id: logits[id])
 
         gen_ids.append(next_token)
