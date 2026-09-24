@@ -206,7 +206,7 @@ def constrained_generate_function_call(prompt: str, registry: List[Dict[str, Any
     if not registry:
         return None
 
-    tester = constrained_decoder(model, registry)
+    tester = constrained_decoder(model, prompt, registry)
     print(tester)
     # print(model.decode(tester))
     # load_vocab(model)

@@ -34,11 +34,17 @@ class JSON_Machine:
     def __init__(self, model: Small_LLM_Model, registry: list[dict]):
         self.model = model
         self.registry = registry
+        self.func_names = [func["name"] for func in self.registry]
+
         self.curr_func = None
         self.curr_param = None
         self.prev_token = None
+
         self.expected_sequence = []
         self.sequence_i = 0
+
+        self.func_sequences = []
+        self.func_seq_i = 0
 
     def encode(self, text: str) -> list[int]:
         return encode_text(self.model, text)
@@ -48,9 +54,8 @@ class JSON_Machine:
 
         for text in texts:
             ids = self.encode(text)
-            for id in ids:
-                if ids:
-                    valid.add(ids[0])
+            if ids:
+                valid.add(ids[0])
 
         return valid
 
@@ -78,6 +83,41 @@ class JSON_Machine:
         if len(gen_ids) < len(expected):
             return False
         return gen_ids[-len(expected):] == expected
+
+    def init_func_seq(self) -> None:
+        self.func_sequences = []
+
+        for func in self.registry:
+            func_tokens = self.encode(f'"{func["name"]}"')
+            self.func_sequences.append(func_tokens)
+
+        self.func_seq_i = 0
+
+    def next_func_token(self) -> set[int]:
+        valid = set()
+
+        for func in self.func_sequences:
+            if self.func_seq_i < len(func):
+                valid.add(func[self.func_seq_i])
+
+        return valid
+
+    def increment_func(self, curr_token: int) -> bool:
+        updated_funcs = []
+
+        for func in self.func_sequences:
+            if self.func_seq_i < len(func):
+                if func[self.func_seq_i] == curr_token:
+                    updated_funcs.append(func)
+
+        self.func_sequences = updated_funcs
+        self.func_seq_i += 1
+
+        if not self.func_sequences:
+            return False
+
+        return all(self.func_seq_i >= len(func)
+                   for func in self.func_sequences)
 
     def find_func(self, gen_ids: list[int]) -> dict | None:
         for func in self.registry:
@@ -112,21 +152,14 @@ class JSON_Machine:
             return self.valid_first_tokens([":"])
 
         elif state == JSON_State.EXPECT_FUNCTION_NAME:
-            # func_names = [func["name"] for func in self.registry]
-            # return self.valid_first_tokens(
-            #     [f'"{func_name}"' for func_name in func_names])
-            if self.curr_func is None:
-                func = self.find_func(gen_ids)
-
-                if func is not None:
-                    self.curr_func = func
-
-            if len(self.expected_sequence) <= 0:
-                self.init_sequence(self.curr_func["name"])
-            return self.next_token()
+            if not self.func_sequences:
+                self.init_func_seq()
+            return self.next_func_token()
 
         elif state == JSON_State.EXPECT_PARAMETERS_KEY:
-            return self.valid_first_tokens(['"parameters"'])
+            if len(self.expected_sequence) <= 0:
+                self.init_sequence(',"parameters":{')
+            return self.next_token()
 
         elif state == JSON_State.EXPECT_PARAMETER_KEY:
             if self.curr_func is None:
@@ -173,18 +206,27 @@ class JSON_Machine:
         elif state == JSON_State.EXPECT_NAME_KEY:
             if self.increment_index(curr_token):
                 self.expected_sequence = []
+                self.sequence_i = 0
                 return JSON_State.EXPECT_COLON
 
         elif state == JSON_State.EXPECT_COLON:
             return JSON_State.EXPECT_FUNCTION_NAME
 
         elif state == JSON_State.EXPECT_FUNCTION_NAME:
-            if self.increment_index(curr_token):
-                self.expected_sequence = []
+            if self.increment_func(curr_token):
+                func = self.find_func(gen_ids)
+
+                if func is not None:
+                    self.curr_func = func
+                    self.func_sequences = []
+                    self.func_seq_i = 0
                 return JSON_State.EXPECT_PARAMETERS_KEY
 
         elif state == JSON_State.EXPECT_PARAMETERS_KEY:
-            return JSON_State.EXPECT_PARAMETER_KEY
+            if self.increment_index(curr_token):
+                self.expected_sequence = []
+                self.sequence_i = 0
+                return JSON_State.EXPECT_PARAMETER_KEY
 
         elif state == JSON_State.EXPECT_PARAMETER_KEY:
             return JSON_State.EXPECT_PARAMETER_COLON
@@ -222,11 +264,12 @@ class JSON_Machine:
         return state
 
 
-def constrained_decoder(model: Small_LLM_Model, registry: list[dict]) -> list[int]:
-    state = JSON_State.EXPECT_FUNCTION_NAME
+def constrained_decoder(model: Small_LLM_Model, prompt: str, registry: list[dict]) -> list[int]:
+    state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry)
-    gen_ids = encode_text(model,
-                          '{"name":')
+    input = '{"prompt":"' + prompt + '",'
+    gen_ids = encode_text(model, input)
+
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
         if hasattr(logits, "__len__") and logits and hasattr(logits[0], "__len__"):
