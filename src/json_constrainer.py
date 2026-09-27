@@ -273,7 +273,7 @@ class JSON_Machine:
                     self.curr_param = param
                     self.param_sequences = []
                     self.param_seq_i = 0
-                return JSON_State.EXPECT_PARAMETER_COLON
+                    return JSON_State.EXPECT_PARAMETER_COLON
 
         elif state == JSON_State.EXPECT_PARAMETER_COLON:
             if self.curr_param["type"] == "number":
@@ -308,7 +308,8 @@ class JSON_Machine:
         return state
 
 
-def constrained_decoder(model: Small_LLM_Model, prompt: str, registry: list[dict]) -> list[int]:
+def constrained_decoder(model: Small_LLM_Model, prompt: str,
+                        registry: list[dict]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry)
     input = '{"prompt":"' + prompt + '",'
@@ -316,7 +317,8 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str, registry: list[dict
 
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
-        if hasattr(logits, "__len__") and logits and hasattr(logits[0], "__len__"):
+        if hasattr(logits, "__len__") and logits and hasattr(logits[0],
+                                                             "__len__"):
             logits = logits[0]
 
         valid_ids = state_machine.valid_tokens(state, gen_ids)
@@ -334,6 +336,7 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str, registry: list[dict
         state = state_machine.update_state(state, next_token, gen_ids)
 
     return gen_ids
+
 
 def encode_text(model: Small_LLM_Model, text: str) -> list[list[int]]:
     ids = model.encode(text)
@@ -407,7 +410,6 @@ def load_vocab(model: Small_LLM_Model) -> None:
         '{"name":"fn_add_numbers"',
         '{"name":"fn_add_numbers",',
         '{"name":"fn_add_numbers","parameters":',
-        '{"name":"fn_add_numbers","parameters":{"a":{"type":"number"},"b":{"type":"number"}}',
         '"hello"',
         '"hello world"',
         "40",
