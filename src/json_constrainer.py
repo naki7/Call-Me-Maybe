@@ -19,6 +19,7 @@ class JSON_State(Enum):
     IN_STRING = auto()
 
     EXPECT_NUMBER = auto()
+    EXPECT_NUMBER_DIGIT = auto()
     IN_DIGIT = auto()
     IN_DECIMAL = auto()
 
@@ -38,6 +39,7 @@ class JSON_Machine:
 
         self.curr_func = None
         self.curr_param = None
+        self.used_param = set()
         self.prev_token = None
 
         self.expected_sequence = []
@@ -134,9 +136,11 @@ class JSON_Machine:
         self.param_sequences = []
 
         if self.curr_func is None:
-            return False
+            return
 
         for param in self.curr_func["parameters"]:
+            if param in self.used_param:
+                continue
             param_tokens = self.encode(f'"{param}"')
             self.param_sequences.append(param_tokens)
 
@@ -175,9 +179,37 @@ class JSON_Machine:
         for param_name, param_type in self.curr_func["parameters"].items():
             param_token = self.encode(f'"{param_name}"')
             if self.verify_sequence(gen_ids, param_token):
-                return param_type
+                return param_name, param_type
 
         return None
+
+    def has_unused_params(self) -> bool:
+        if self.curr_func is None:
+            return False
+
+        return any(param not in self.used_param
+                   for param in self.curr_func["parameters"])
+
+    def digit_tokens(self) -> set[int]:
+        digits = set()
+
+        for digit in "0123456789":
+            digits.update(self.encode(digit))
+
+        return digits
+
+    def token_is(self, curr_token: int, text: str) -> bool:
+        tokens = self.encode(text)
+        return len(tokens) == 1 and curr_token == tokens[0]
+
+    def token_is_digit(self, curr_token: int) -> bool:
+        possible_digits = self.digit_tokens()
+
+        for digit in possible_digits:
+            if curr_token == digit:
+                return True
+
+        return False
 
     def valid_tokens(self, state: JSON_State, gen_ids: list[int]) -> set[int]:
 
@@ -217,7 +249,33 @@ class JSON_Machine:
             return self.valid_first_tokens(['"'])
 
         elif state == JSON_State.EXPECT_NUMBER:
-            pass
+            digits = self.digit_tokens()
+
+            digits.update(self.encode("-"))
+            return digits
+
+        elif state == JSON_State.EXPECT_NUMBER_DIGIT:
+            digits = self.digit_tokens()
+            return digits
+
+        elif state == JSON_State.IN_DIGIT:
+            digits = self.digit_tokens()
+            digits.update(self.encode("."))
+
+            if self.has_unused_params():
+                digits.update(self.encode(","))
+            digits.update(self.encode("}"))
+
+            return digits
+
+        elif state == JSON_State.IN_DECIMAL:
+            digits = self.digit_tokens()
+
+            if self.has_unused_params():
+                digits.update(self.encode(","))
+            digits.update(self.encode("}"))
+
+            return digits
 
         elif state == JSON_State.EXPECT_BOOLEAN:
             return self.valid_first_tokens(["true", "false"])
@@ -270,7 +328,10 @@ class JSON_Machine:
                 param = self.find_param(gen_ids)
 
                 if param is not None:
-                    self.curr_param = param
+                    param_name, param_type = param
+                    self.curr_param = param_type
+                    self.used_param.add(param_name)
+
                     self.param_sequences = []
                     self.param_seq_i = 0
                     return JSON_State.EXPECT_PARAMETER_COLON
@@ -290,7 +351,32 @@ class JSON_Machine:
             pass
 
         elif state == JSON_State.EXPECT_NUMBER:
-            pass
+            if self.token_is(curr_token, "-"):
+                return JSON_State.EXPECT_NUMBER_DIGIT
+
+            if self.token_is_digit(curr_token):
+                return JSON_State.IN_DIGIT
+
+        elif state == JSON_State.EXPECT_NUMBER_DIGIT:
+            if self.token_is_digit(curr_token):
+                return JSON_State.IN_DIGIT
+
+        elif state == JSON_State.IN_DIGIT:
+            if self.token_is_digit(curr_token):
+                return JSON_State.IN_DIGIT
+
+            if self.token_is(curr_token, "."):
+                return JSON_State.IN_DECIMAL
+
+            if self.token_is(curr_token, ","):
+                return JSON_State.EXPECT_PARAMETER_KEY
+
+            if self.token_is(curr_token, "}"):
+                return JSON_State.EXPECT_OBJ_END
+
+        elif state == JSON_State.IN_DECIMAL:
+            if self.token_is_digit(curr_token):
+                return JSON_State.IN_DECIMAL
 
         elif state == JSON_State.EXPECT_BOOLEAN:
             return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
@@ -393,42 +479,47 @@ def load_vocab(model: Small_LLM_Model) -> None:
         # "-40",
         # "true",
         # "false",
-        "hello",
-        "hello world",
-        " hello",
-        "fn_",
-        "fn_add",
-        "\"hello",
-        "\"hello world",
-        "{",
-        '{"',
-        '{"name',
-        '{"name"',
-        '{"name":',
-        '{"name":"',
-        '{"name":"fn_add_numbers',
-        '{"name":"fn_add_numbers"',
-        '{"name":"fn_add_numbers",',
-        '{"name":"fn_add_numbers","parameters":',
-        '"hello"',
-        '"hello world"',
+        # "hello",
+        # "hello world",
+        # " hello",
+        # "fn_",
+        # "fn_add",
+        # "\"hello",
+        # "\"hello world",
+        # "{",
+        # '{"',
+        # '{"name',
+        # '{"name"',
+        # '{"name":',
+        # '{"name":"',
+        # '{"name":"fn_add_numbers',
+        # '{"name":"fn_add_numbers"',
+        # '{"name":"fn_add_numbers",',
+        # '{"name":"fn_add_numbers","parameters":',
+        # '"hello"',
+        # '"hello world"',
+        "0",
+        "1",
+        "9",
+        "10",
         "40",
         "40.5",
         "-40",
         "-40.5",
-        "true",
-        "false",
-        "null",
-        '"',
-        '"n',
-        '"na',
-        '"nam',
-        '"name',
-        '"name"',
-        '"fn_',
-        '"fn_a',
-        '"fn_add',
-        '"fn_add_',
-        '"fn_add_numbers',
+        "123.456"
+        # "true",
+        # "false",
+        # "null",
+        # '"',
+        # '"n',
+        # '"na',
+        # '"nam',
+        # '"name',
+        # '"name"',
+        # '"fn_',
+        # '"fn_a',
+        # '"fn_add',
+        # '"fn_add_',
+        # '"fn_add_numbers',
     ]
     script_exp(model, vocab, examples)
