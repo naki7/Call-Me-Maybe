@@ -172,7 +172,7 @@ class JSON_Machine:
         return all(self.param_seq_i >= len(param)
                    for param in self.param_sequences)
 
-    def find_param(self, gen_ids: list[int]) -> dict | None:
+    def find_param(self, gen_ids: list[int]) -> tuple[str, dict] | None:
         if self.curr_func is None:
             return None
 
@@ -368,7 +368,7 @@ class JSON_Machine:
             if self.token_is(curr_token, "."):
                 return JSON_State.IN_DECIMAL
 
-            if self.token_is(curr_token, ","):
+            if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
 
             if self.token_is(curr_token, "}"):
@@ -377,6 +377,12 @@ class JSON_Machine:
         elif state == JSON_State.IN_DECIMAL:
             if self.token_is_digit(curr_token):
                 return JSON_State.IN_DECIMAL
+
+            if self.token_is(curr_token, ",") and self.has_unused_params():
+                return JSON_State.EXPECT_PARAMETER_KEY
+
+            if self.token_is(curr_token, "}"):
+                return JSON_State.EXPECT_OBJ_END
 
         elif state == JSON_State.EXPECT_BOOLEAN:
             return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
@@ -398,8 +404,8 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
                         registry: list[dict]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry)
-    input = '{"prompt":"' + prompt + '",'
-    gen_ids = encode_text(model, input)
+    input_text = '{"prompt":"' + prompt + '",'
+    gen_ids = encode_text(model, input_text)
 
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
