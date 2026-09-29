@@ -408,6 +408,7 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
     context = build_model_context(prompt, registry)
     input_text = (context + "\n\n" + '{"prompt":"' + prompt + '",')
     gen_ids = encode_text(model, input_text)
+    gen_result_ids = encode_text(model, '{{"prompt":"' + prompt + '",')
 
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
@@ -426,11 +427,13 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         next_token = max(valid_ids, key=lambda token_id: logits[token_id])
 
         gen_ids.append(next_token)
-        print(model.decode(gen_ids))
+        gen_result_ids.append(next_token)
+        # print(model.decode(gen_ids))
+        print(model.decode(gen_result_ids))
 
         state = state_machine.update_state(state, next_token, gen_ids)
 
-    return gen_ids
+    return gen_result_ids
 
 
 def encode_text(model: Small_LLM_Model, text: str) -> list[list[int]]:
