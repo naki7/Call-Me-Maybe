@@ -3,23 +3,7 @@ from typing import Any
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj, obj_to_json
-from src.constrained import constrained_generate_function_call
-
-
-def process_prompts(prompt: str, registry: list[dict[str, Any]],
-                    model: Small_LLM_Model) -> dict[str, Any]:
-    # minimal constrained JSON-state decoder:
-    # choose function name with logits restricted to valid names in registry
-    constrained = constrained_generate_function_call(prompt, registry, model)
-    if constrained is not None:
-        name = constrained["function_name"]
-        args = constrained["arguments"]
-        result = {
-            "prompt": prompt,
-            "name": name,
-            "parameters": args,
-        }
-        return result
+from src.json_constrainer import constrained_decoder
 
 
 def main() -> None:
@@ -33,30 +17,46 @@ def main() -> None:
     registry = json_to_obj(func_path)
     tests = json_to_obj(test_path)
     model = Small_LLM_Model()
-    all_results = []
+    # all_results = []
 
     for test in tests:
         prompt = test["prompt"]
-        result = process_prompts(prompt, registry, model)
-        return
+        if not registry:
+            return None
 
-        assert "prompt" in result
-        assert "name" in result
-        assert "parameters" in result
+        # context = build_model_context(prompt, registry)
+        # print(context)
 
-        func_def = next(
-            func for func in registry
-            if func["name"] == result["name"]
-        )
+        # input_ids = encode_text(model, context)
+        # print(model.decode(input_ids) == context)
 
-        assert set(result["parameters"].keys()) == set(
-            func_def["parameters"].keys())
+        tester = constrained_decoder(model, prompt, registry)
+        print(model.decode(tester))
 
-        print(prompt)
-        print(result)
-        all_results.append(result)
+        # print(model.decode(tester))
+        # load_vocab(model)
+    #     return
 
-    obj_to_json({"results": all_results})
+    #     result = process_prompts(prompt, registry, model)
+    #     return
+
+    #     assert "prompt" in result
+    #     assert "name" in result
+    #     assert "parameters" in result
+
+    #     func_def = next(
+    #         func for func in registry
+    #         if func["name"] == result["name"]
+    #     )
+
+    #     assert set(result["parameters"].keys()) == set(
+    #         func_def["parameters"].keys())
+
+    #     print(prompt)
+    #     print(result)
+    #     all_results.append(result)
+
+    # obj_to_json({"results": all_results})
     # print(json.dumps(all_results, indent=2))
 
 

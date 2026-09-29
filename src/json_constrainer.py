@@ -2,6 +2,7 @@ import json
 from enum import Enum, auto
 
 from llm_sdk.llm_sdk import Small_LLM_Model
+from src.contexualizer import build_model_context
 
 
 class JSON_State(Enum):
@@ -404,7 +405,8 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
                         registry: list[dict]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry)
-    input_text = '{"prompt":"' + prompt + '",'
+    context = build_model_context(prompt, registry)
+    input_text = (context + "\n\n" + '{"prompt":"' + prompt + '",')
     gen_ids = encode_text(model, input_text)
 
     while state != JSON_State.DONE:
@@ -417,10 +419,11 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         # HANDLE GRACEFULLY LATER
         if not valid_ids:
             print(f"No valid tokens for state {state}")
-        for id in range(len(logits)):
-            if id not in valid_ids:
-                logits[id] = float("-inf")
-        next_token = max(valid_ids, key=lambda id: logits[id])
+
+        for token_id in range(len(logits)):
+            if token_id not in valid_ids:
+                logits[token_id] = float("-inf")
+        next_token = max(valid_ids, key=lambda token_id: logits[token_id])
 
         gen_ids.append(next_token)
         print(model.decode(gen_ids))
@@ -444,6 +447,7 @@ def encode_text(model: Small_LLM_Model, text: str) -> list[list[int]]:
     return [int(token_id) for token_id in ids]
 
 
+# for testing - DELETE BEFORE HAND IN!!!!!!!!!
 def script_exp(model: Small_LLM_Model, vocab: dict[str, int],
                examples: list[str]) -> None:
     print(f"Vocab size: {len(vocab)}")
@@ -504,15 +508,23 @@ def load_vocab(model: Small_LLM_Model) -> None:
         # '{"name":"fn_add_numbers","parameters":',
         # '"hello"',
         # '"hello world"',
-        "0",
         "1",
-        "9",
-        "10",
-        "40",
-        "40.5",
-        "-40",
-        "-40.5",
-        "123.456"
+        "12",
+        "123",
+        "100",
+        "1000",
+        "12345",
+        "1.5",
+        "10000000",
+        # "0",
+        # "1",
+        # "9",
+        # "10",
+        # "40",
+        # "40.5",
+        # "-40",
+        # "-40.5",
+        # "123.456"
         # "true",
         # "false",
         # "null",
