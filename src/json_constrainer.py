@@ -5,6 +5,15 @@ from llm_sdk.llm_sdk import Small_LLM_Model
 from src.contexualizer import build_model_context
 
 
+def load_vocab(model: Small_LLM_Model) -> None:
+    vocab_path = model.get_path_to_vocab_file()
+    vocab = {}
+    with open(vocab_path, "r", encoding="utf-8") as vocab_file:
+        vocab = json.load(vocab_file)
+
+    return vocab
+
+
 class JSON_State(Enum):
     EXPECT_OPEN_OBJ = auto()
 
@@ -33,9 +42,11 @@ class JSON_State(Enum):
 
 
 class JSON_Machine:
-    def __init__(self, model: Small_LLM_Model, registry: list[dict]):
+    def __init__(self, model: Small_LLM_Model, registry: list[dict],
+                 vocab: dict):
         self.model = model
         self.registry = registry
+        self.vocab = vocab
         self.func_names = [func["name"] for func in self.registry]
 
         self.curr_func = None
@@ -212,6 +223,14 @@ class JSON_Machine:
 
         return False
 
+    def string_tokens(self) -> set[int]:
+        valid = set()
+
+        for token_id in range(len(self.vocab)):
+            valid.add(token_id)
+
+        return valid
+
     def valid_tokens(self, state: JSON_State, gen_ids: list[int]) -> set[int]:
 
         if state == JSON_State.EXPECT_OPEN_OBJ:
@@ -247,7 +266,7 @@ class JSON_Machine:
             return set(self.encode('"'))
 
         elif state == JSON_State.IN_STRING:
-            return self.valid_first_tokens(['"'])
+            return self.string_tokens()
 
         elif state == JSON_State.EXPECT_NUMBER:
             digits = self.digit_tokens()
@@ -349,7 +368,10 @@ class JSON_Machine:
             return JSON_State.IN_STRING
 
         elif state == JSON_State.IN_STRING:
-            pass
+            if self.token_is(curr_token, '"'):
+                if self.has_unused_params():
+                    return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
+                return JSON_State.EXPECT_OBJ_END
 
         elif state == JSON_State.EXPECT_NUMBER:
             if self.token_is(curr_token, "-"):
@@ -402,13 +424,14 @@ class JSON_Machine:
 
 
 def constrained_decoder(model: Small_LLM_Model, prompt: str,
-                        registry: list[dict]) -> list[int]:
+                        registry: list[dict],
+                        vocab: dict[str, int]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
-    state_machine = JSON_Machine(model, registry)
+    state_machine = JSON_Machine(model, registry, vocab)
     context = build_model_context(prompt, registry)
     input_text = (context + "\n\n" + '{"prompt":"' + prompt + '",')
     gen_ids = encode_text(model, input_text)
-    gen_result_ids = encode_text(model, '{{"prompt":"' + prompt + '",')
+    gen_result_ids = encode_text(model, '{"prompt":"' + prompt + '",')
 
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
@@ -432,6 +455,9 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         print(model.decode(gen_result_ids))
 
         state = state_machine.update_state(state, next_token, gen_ids)
+
+    print("FINAL STATE:", state)
+    print("FINAL RESULT:", repr(model.decode(gen_result_ids)))
 
     return gen_result_ids
 
@@ -464,14 +490,7 @@ def script_exp(model: Small_LLM_Model, vocab: dict[str, int],
 
         for token_id in token_ids:
             print(f"  {token_id} -> {model.decode(token_id)}")
-
-
-def load_vocab(model: Small_LLM_Model) -> None:
-    vocab_path = model.get_path_to_vocab_file()
-    vocab = {}
-    print(vocab_path)
-    with open(vocab_path, "r", encoding="utf-8") as vocab_file:
-        vocab = json.load(vocab_file)
+    # print(vocab_path)
 
     examples = [
         # "{",

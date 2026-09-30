@@ -3,7 +3,7 @@ from typing import Any
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj, obj_to_json
-from src.json_constrainer import constrained_decoder
+from src.json_constrainer import constrained_decoder, load_vocab
 
 
 def main() -> None:
@@ -17,21 +17,21 @@ def main() -> None:
     registry = json_to_obj(func_path)
     tests = json_to_obj(test_path)
     model = Small_LLM_Model()
-    # all_results = []
+    vocab = load_vocab(model)
 
     for test in tests:
         prompt = test["prompt"]
         if not registry:
             return None
 
+        tester = constrained_decoder(model, prompt, registry, vocab)
+        print(model.decode(tester))
+
         # context = build_model_context(prompt, registry)
         # print(context)
 
         # input_ids = encode_text(model, context)
         # print(model.decode(input_ids) == context)
-
-        tester = constrained_decoder(model, prompt, registry)
-        print(model.decode(tester))
 
         # print(model.decode(tester))
         # load_vocab(model)
