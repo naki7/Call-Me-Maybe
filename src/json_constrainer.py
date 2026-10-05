@@ -315,6 +315,32 @@ class JSON_Machine:
                      gen_ids: list[int]) -> JSON_State:
         self.prev_token = curr_token
 
+        token_text = self.model.decode([curr_token])
+
+        if state == JSON_State.IN_STRING:
+            for char in token_text:
+                if state == JSON_State.IN_STRING:
+                    if char == '"':
+                        if self.has_unused_params():
+                            state = JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
+                        else:
+                            state = JSON_State.EXPECT_OBJ_END
+
+                elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
+                    if char == ",":
+                        state = JSON_State.EXPECT_PARAMETER_KEY
+                    elif char == "}":
+                        state = JSON_State.EXPECT_OBJ_END
+
+                elif state == JSON_State.EXPECT_OBJ_END:
+                    if char == "}":
+                        state = JSON_State.DONE
+
+                elif state == JSON_State.DONE:
+                    break
+
+            return state
+
         if state == JSON_State.EXPECT_NAME_KEY:
             if self.increment_index(curr_token):
                 self.expected_sequence = []
@@ -452,12 +478,21 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
         # print(model.decode(gen_ids))
-        print(model.decode(gen_result_ids))
+        # print(model.decode(gen_result_ids))
+        # print("current STATE:", state)
 
+        # decoded = model.decode([next_token])
+        # print(
+        #     "TOKEN:",
+        #     next_token,
+        #     repr(decoded),
+        #     "STATE:",
+        #     state
+        # )
         state = state_machine.update_state(state, next_token, gen_ids)
 
-    print("FINAL STATE:", state)
-    print("FINAL RESULT:", repr(model.decode(gen_result_ids)))
+    # print("FINAL STATE:", state)
+    # print("FINAL RESULT:", repr(model.decode(gen_result_ids)))
 
     return gen_result_ids
 

@@ -1,38 +1,43 @@
-[x] Layer 1 — Context construction
-    Something like:
-    def build_prompt(prompt, registry):
-        ...
-    Its job is:
-    registry + user prompt
-            ↓
-    text the LLM understands
+[] All completed:
+    [x] Layer 1 — Context construction
+        Something like:
+        def build_prompt(prompt, registry):
+            ...
+        Its job is:
+        registry + user prompt
+                ↓
+        text the LLM understands
 
-[x] Layer 2 — JSON state machine
-    class JSON_Machine:
-    Its job is:
-    What tokens are structurally legal right now?
-    For example:
-    EXPECT_FUNCTION_NAME
-            ↓
-    tokens belonging to registered functions
-    EXPECT_PARAMETER_KEY
-            ↓
-    tokens belonging to parameters of curr_func
-    EXPECT_NUMBER
-            ↓
-    0-9, -
+    [x] Layer 2 — JSON state machine
+        class JSON_Machine:
+        Its job is:
+        What tokens are structurally legal right now?
+        For example:
+        EXPECT_FUNCTION_NAME
+                ↓
+        tokens belonging to registered functions
+        EXPECT_PARAMETER_KEY
+                ↓
+        tokens belonging to parameters of curr_func
+        EXPECT_NUMBER
+                ↓
+        0-9, -
 
-[x] Layer 3 — Generation loop
-    constrained_decoder()
-    combines the two:
-    LLM logits
-         +
-    JSON_Machine valid tokens
-         ↓
-    mask invalid logits
-         ↓
-    select highest valid token
-         ↓
-    update state
+    [x] Layer 3 — Generation loop
+        constrained_decoder()
+        combines the two:
+        LLM logits
+             +
+        JSON_Machine valid tokens
+             ↓
+        mask invalid logits
+             ↓
+        select highest valid token
+             ↓
+        update st   ate
 
-[] Layer 4 - Resolve string parameters
+    [x] Layer 4 - Resolve string parameters
+
+    [] Layer 5 - Use JSON escaping within prompt to fit JSON validity
+
+    [] Layer 6 - Look at possible JSON escaping within string parameters
