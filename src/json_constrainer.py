@@ -455,9 +455,9 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry, vocab)
     context = build_model_context(prompt, registry)
-    input_text = (context + "\n\n" + '{"prompt":"' + prompt + '",')
+    input_text = context + "\n\n" + '{"prompt":' + prompt + ','
     gen_ids = encode_text(model, input_text)
-    gen_result_ids = encode_text(model, '{"prompt":"' + prompt + '",')
+    gen_result_ids = encode_text(model, '{"prompt":' + prompt + ',')
 
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)

@@ -1,4 +1,5 @@
 import sys
+import json
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj
@@ -19,7 +20,7 @@ def main() -> None:
     vocab = load_vocab(model)
 
     for test in tests:
-        prompt = test["prompt"]
+        prompt = json.dumps(test["prompt"])
         if not registry:
             return None
 
