@@ -27,6 +27,7 @@ class JSON_State(Enum):
 
     EXPECT_STRING_OPEN = auto()
     IN_STRING = auto()
+    IN_STRING_ESCAPE = auto()
 
     EXPECT_NUMBER = auto()
     EXPECT_NUMBER_DIGIT = auto()
@@ -65,6 +66,9 @@ class JSON_Machine:
 
     def encode(self, text: str) -> list[int]:
         return encode_text(self.model, text)
+
+    def decode(self, token_id: int) -> str:
+        return self.model.decode([token_id])
 
     def valid_first_tokens(self, texts: list[str]) -> set[int]:
         valid = set()
@@ -223,11 +227,56 @@ class JSON_Machine:
 
         return False
 
-    def string_tokens(self) -> set[int]:
+    def token_valid_from_string(self, text: str) -> bool:
+        state = JSON_State.IN_STRING
+        esc = False
+
+        for char in text:
+            if state == JSON_State.IN_STRING:
+                if esc:
+                    if char in '\\/bfnrt':
+                        esc = False
+                        continue
+                    return False
+
+                if char == "\\":
+                    esc = True
+                    continue
+
+                if char == '"':
+                    if self.has_unused_params():
+                        state = JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
+                    else:
+                        state = JSON_State.EXPECT_OBJ_END
+                    continue
+
+                if ord(char) < 0x20:
+                    return False
+
+            elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
+                if char == ",":
+                    state = JSON_State.EXPECT_PARAMETER_KEY
+                elif char == "}":
+                    state = JSON_State.EXPECT_OBJ_END
+                else:
+                    return False
+
+            elif state == JSON_State.EXPECT_PARAMETER_KEY:
+                return False
+
+            elif state == JSON_State.DONE:
+                break
+
+        return not esc
+
+    def valid_string_tokens(self) -> set[int]:
         valid = set()
 
         for token_id in range(len(self.vocab)):
-            valid.add(token_id)
+            token_text = self.decode(token_id)
+
+            if self.token_valid_from_string(token_text):
+                valid.add(token_id)
 
         return valid
 
@@ -266,7 +315,7 @@ class JSON_Machine:
             return set(self.encode('"'))
 
         elif state == JSON_State.IN_STRING:
-            return self.string_tokens()
+            return self.valid_string_tokens()
 
         elif state == JSON_State.EXPECT_NUMBER:
             digits = self.digit_tokens()
@@ -314,27 +363,42 @@ class JSON_Machine:
     def update_state(self, state: JSON_State, curr_token: int,
                      gen_ids: list[int]) -> JSON_State:
         self.prev_token = curr_token
-
         token_text = self.model.decode([curr_token])
 
-        if state == JSON_State.IN_STRING:
+        if state in (JSON_State.IN_STRING, JSON_State.IN_STRING_ESCAPE):
             for char in token_text:
                 if state == JSON_State.IN_STRING:
+                    if char == "\\":
+                        state = JSON_State.IN_STRING_ESCAPE
+                        continue
+
                     if char == '"':
                         if self.has_unused_params():
                             state = JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
                         else:
                             state = JSON_State.EXPECT_OBJ_END
+                        continue
+                    continue
+
+                elif state == JSON_State.IN_STRING_ESCAPE:
+                    if char in '"\\/bfnrt':
+                        state = JSON_State.IN_STRING
+                        continue
+                    return state
 
                 elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
                     if char == ",":
                         state = JSON_State.EXPECT_PARAMETER_KEY
                     elif char == "}":
                         state = JSON_State.EXPECT_OBJ_END
+                    else:
+                        return state
 
                 elif state == JSON_State.EXPECT_OBJ_END:
                     if char == "}":
                         state = JSON_State.DONE
+                    else:
+                        return state
 
                 elif state == JSON_State.DONE:
                     break
@@ -392,12 +456,6 @@ class JSON_Machine:
 
         elif state == JSON_State.EXPECT_STRING_OPEN:
             return JSON_State.IN_STRING
-
-        elif state == JSON_State.IN_STRING:
-            if self.token_is(curr_token, '"'):
-                if self.has_unused_params():
-                    return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
-                return JSON_State.EXPECT_OBJ_END
 
         elif state == JSON_State.EXPECT_NUMBER:
             if self.token_is(curr_token, "-"):
@@ -497,7 +555,7 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
     return gen_result_ids
 
 
-def encode_text(model: Small_LLM_Model, text: str) -> list[list[int]]:
+def encode_text(model: Small_LLM_Model, text: str) -> list[int]:
     ids = model.encode(text)
 
     try:
