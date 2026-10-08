@@ -38,6 +38,28 @@
 
     [x] Layer 4 - Resolve string parameters
 
-    [] Layer 5 - Use JSON escaping within prompt to fit JSON validity
+    [x] Layer 5 - Use JSON escaping within prompt to fit JSON validity
 
-    [] Layer 6 - Look at possible JSON escaping within string parameters
+    [] Layer 6 - JSON escaping within string parameters
+
+    [] Layer 7 - STrengthen number constraints
+
+    [] Layer 8 - fix boolean sequence handling
+
+    [] Layer 9 - Validate required parameters (avoid omittions)
+
+    [] Layer 10 - Pydantic Validation
+
+    [] Layer 11 - Comprehensive state/decoder tests
+
+    [] Layer 12 - Make CLI == 'uv run python -m src ...' and defaults
+
+    [] Layer 13 - graceful input/registry errors
+
+    [] Layer 14 - test arbitrary function registries
+
+    [] Layer 15 - flake8/mypy & refactor code layout
+
+    [] Layer 16 - optimize token/encoding operations
+
+    [] Layer 17 - README + Final eval tests
