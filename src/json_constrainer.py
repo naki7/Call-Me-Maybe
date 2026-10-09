@@ -64,6 +64,9 @@ class JSON_Machine:
         self.param_sequences = []
         self.param_seq_i = 0
 
+        self.bool_sequences = []
+        self.bool_seq_i = 0
+
     def encode(self, text: str) -> list[int]:
         return encode_text(self.model, text)
 
@@ -198,6 +201,39 @@ class JSON_Machine:
                 return param_name, param_type
 
         return None
+
+    def init_bool_seq(self) -> None:
+        self.bool_sequences = [
+            self.encode("true"),
+            self.encode("false")
+        ]
+        self.bool_seq_i = 0
+
+    def next_bool_token(self) -> set[int]:
+        valid = set()
+
+        for bool in self.bool_sequences:
+            if self.bool_seq_i < len(bool):
+                valid.add(bool[self.bool_seq_i])
+
+        return valid
+
+    def increment_bool(self, curr_token: int) -> bool:
+        updated_bools = []
+
+        for bool in self.bool_sequences:
+            if self.bool_seq_i < len(bool):
+                if bool[self.bool_seq_i] == curr_token:
+                    updated_bools.append(bool)
+
+        self.bool_sequences = updated_bools
+        self.bool_seq_i += 1
+
+        if not self.bool_sequences:
+            return False
+
+        return all(self.bool_seq_i >= len(bool)
+                   for bool in self.bool_sequences)
 
     def has_unused_params(self) -> bool:
         if self.curr_func is None:
@@ -347,7 +383,9 @@ class JSON_Machine:
             return digits
 
         elif state == JSON_State.EXPECT_BOOLEAN:
-            return self.valid_first_tokens(["true", "false"])
+            if not self.bool_sequences:
+                self.init_bool_seq()
+            return self.next_bool_token()
 
         elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
             return self.valid_first_tokens([",", "}"])
@@ -492,7 +530,10 @@ class JSON_Machine:
                 return JSON_State.EXPECT_OBJ_END
 
         elif state == JSON_State.EXPECT_BOOLEAN:
-            return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
+            if self.increment_index(curr_token):
+                self.bool_sequences = []
+                self.bool_seq_i = 0
+                return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
 
         elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
             if self.token_is(curr_token, ","):
