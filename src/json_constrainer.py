@@ -31,7 +31,8 @@ class JSON_State(Enum):
 
     EXPECT_NUMBER = auto()
     EXPECT_NUMBER_DIGIT = auto()
-    IN_DIGIT = auto()
+    IN_ZERO = auto()
+    IN_INTEGER = auto()
     IN_DECIMAL = auto()
 
     EXPECT_BOOLEAN = auto()
@@ -363,7 +364,14 @@ class JSON_Machine:
             digits = self.digit_tokens()
             return digits
 
-        elif state == JSON_State.IN_DIGIT:
+        elif state == JSON_State.IN_ZERO:
+            chars = set()
+            chars.update(self.encode("."))
+            chars.update(self.encode(","))
+            chars.update(self.encode("}"))
+            return chars
+
+        elif state == JSON_State.IN_INTEGER:
             digits = self.digit_tokens()
             digits.update(self.encode("."))
 
@@ -499,16 +507,29 @@ class JSON_Machine:
             if self.token_is(curr_token, "-"):
                 return JSON_State.EXPECT_NUMBER_DIGIT
 
+            if self.token_is(curr_token, "0"):
+                return JSON_State.IN_ZERO
+
             if self.token_is_digit(curr_token):
-                return JSON_State.IN_DIGIT
+                return JSON_State.IN_INTEGER
 
         elif state == JSON_State.EXPECT_NUMBER_DIGIT:
             if self.token_is_digit(curr_token):
-                return JSON_State.IN_DIGIT
+                return JSON_State.IN_INTEGER
 
-        elif state == JSON_State.IN_DIGIT:
+        elif state == JSON_State.IN_ZERO:
+            if self.token_is(curr_token, "."):
+                return JSON_State.IN_DECIMAL
+
+            if self.token_is(curr_token, ",") and self.has_unused_params():
+                return JSON_State.EXPECT_PARAMETER_KEY
+
+            if self.token_is(curr_token, "}"):
+                return JSON_State.EXPECT_OBJ_END
+
+        elif state == JSON_State.IN_INTEGER:
             if self.token_is_digit(curr_token):
-                return JSON_State.IN_DIGIT
+                return JSON_State.IN_INTEGER
 
             if self.token_is(curr_token, "."):
                 return JSON_State.IN_DECIMAL
