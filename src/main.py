@@ -20,12 +20,14 @@ def main() -> None:
     vocab = load_vocab(model)
 
     for test in tests:
-        prompt = json.dumps(test["prompt"])
+        prompt = test["prompt"]
         if not registry:
             return None
 
         tester = constrained_decoder(model, prompt, registry, vocab)
         print(model.decode(tester).rstrip())
+        result = json.loads(model.decode(tester))
+        print(repr(result))
 
         # context = build_model_context(prompt, registry)
         # print(context)

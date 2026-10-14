@@ -31,6 +31,7 @@ class JSON_State(Enum):
 
     EXPECT_NUMBER = auto()
     EXPECT_NUMBER_DIGIT = auto()
+    EXPECT_DECIMAL_DIGIT = auto()
     IN_ZERO = auto()
     IN_INTEGER = auto()
     IN_DECIMAL = auto()
@@ -271,10 +272,10 @@ class JSON_Machine:
         for char in text:
             if state == JSON_State.IN_STRING:
                 if esc:
-                    if char in '\\/bfnrt':
-                        esc = False
-                        continue
-                    return False
+                    if char not in '\\/bfnrt':
+                        return False
+                    esc = False
+                    continue
 
                 if char == "\\":
                     esc = True
@@ -301,8 +302,14 @@ class JSON_Machine:
             elif state == JSON_State.EXPECT_PARAMETER_KEY:
                 return False
 
+            elif state == JSON_State.EXPECT_OBJ_END:
+                if char == "}":
+                    state = JSON_State.DONE
+                else:
+                    return False
+
             elif state == JSON_State.DONE:
-                break
+                return False
 
         return not esc
 
@@ -341,6 +348,9 @@ class JSON_Machine:
             return self.next_token()
 
         elif state == JSON_State.EXPECT_PARAMETER_KEY:
+            if not self.has_unused_params():
+                return self.valid_first_tokens(["}"])
+
             if not self.param_sequences:
                 self.init_param_seq()
             return self.next_param_token()
@@ -367,7 +377,9 @@ class JSON_Machine:
         elif state == JSON_State.IN_ZERO:
             chars = set()
             chars.update(self.encode("."))
-            chars.update(self.encode(","))
+
+            if self.has_unused_params():
+                chars.update(self.encode(","))
             chars.update(self.encode("}"))
             return chars
 
@@ -380,6 +392,9 @@ class JSON_Machine:
             digits.update(self.encode("}"))
 
             return digits
+
+        elif state == JSON_State.EXPECT_DECIMAL_DIGIT:
+            return self.digit_tokens()
 
         elif state == JSON_State.IN_DECIMAL:
             digits = self.digit_tokens()
@@ -477,9 +492,13 @@ class JSON_Machine:
                 return JSON_State.EXPECT_OPEN_OBJ
 
         if state == JSON_State.EXPECT_OPEN_OBJ:
-            return JSON_State.EXPECT_PARAMETER_KEY
+            if self.token_is(curr_token, "{"):
+                return JSON_State.EXPECT_PARAMETER_KEY
 
         elif state == JSON_State.EXPECT_PARAMETER_KEY:
+            if self.token_is(curr_token, "}"):
+                return JSON_State.EXPECT_OBJ_END
+
             if self.increment_param(curr_token):
                 param = self.find_param(gen_ids)
 
@@ -532,13 +551,17 @@ class JSON_Machine:
                 return JSON_State.IN_INTEGER
 
             if self.token_is(curr_token, "."):
-                return JSON_State.IN_DECIMAL
+                return JSON_State.EXPECT_DECIMAL_DIGIT
 
             if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
 
             if self.token_is(curr_token, "}"):
                 return JSON_State.EXPECT_OBJ_END
+
+        elif state == JSON_State.EXPECT_DECIMAL_DIGIT:
+            if self.token_is_digit(curr_token):
+                return JSON_State.IN_DECIMAL
 
         elif state == JSON_State.IN_DECIMAL:
             if self.token_is_digit(curr_token):
@@ -551,7 +574,7 @@ class JSON_Machine:
                 return JSON_State.EXPECT_OBJ_END
 
         elif state == JSON_State.EXPECT_BOOLEAN:
-            if self.increment_index(curr_token):
+            if self.increment_bool(curr_token):
                 self.bool_sequences = []
                 self.bool_seq_i = 0
                 return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
@@ -575,9 +598,10 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry, vocab)
     context = build_model_context(prompt, registry)
-    input_text = context + "\n\n" + '{"prompt":' + prompt + ','
+    escaped_prompt = json.dumps(prompt)
+    input_text = context + "\n\n" + '{"prompt":' + escaped_prompt + ','
     gen_ids = encode_text(model, input_text)
-    gen_result_ids = encode_text(model, '{"prompt":' + prompt + ',')
+    gen_result_ids = encode_text(model, '{"prompt":' + escaped_prompt + ',')
 
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
@@ -586,9 +610,9 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
             logits = logits[0]
 
         valid_ids = state_machine.valid_tokens(state, gen_ids)
-        # HANDLE GRACEFULLY LATER
+
         if not valid_ids:
-            print(f"No valid tokens for state {state}")
+            raise RuntimeError(f"No valid tokens for state {state.name}")
 
         for token_id in range(len(logits)):
             if token_id not in valid_ids:
@@ -599,16 +623,7 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         gen_result_ids.append(next_token)
         # print(model.decode(gen_ids))
         # print(model.decode(gen_result_ids))
-        # print("current STATE:", state)
 
-        # decoded = model.decode([next_token])
-        # print(
-        #     "TOKEN:",
-        #     next_token,
-        #     repr(decoded),
-        #     "STATE:",
-        #     state
-        # )
         state = state_machine.update_state(state, next_token, gen_ids)
 
     # print("FINAL STATE:", state)
