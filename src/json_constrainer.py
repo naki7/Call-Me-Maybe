@@ -599,9 +599,10 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
     state_machine = JSON_Machine(model, registry, vocab)
     context = build_model_context(prompt, registry)
     escaped_prompt = json.dumps(prompt)
-    input_text = context + "\n\n" + '{"prompt":' + escaped_prompt + ','
+    output_prefix = '{"prompt":' + escaped_prompt + ','
+    input_text = context + "\n\n" + output_prefix
     gen_ids = encode_text(model, input_text)
-    gen_result_ids = encode_text(model, '{"prompt":' + escaped_prompt + ',')
+    gen_result_ids = encode_text(model, output_prefix)
 
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
@@ -610,13 +611,13 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
             logits = logits[0]
 
         valid_ids = state_machine.valid_tokens(state, gen_ids)
-
         if not valid_ids:
             raise RuntimeError(f"No valid tokens for state {state.name}")
 
         for token_id in range(len(logits)):
             if token_id not in valid_ids:
                 logits[token_id] = float("-inf")
+
         next_token = max(valid_ids, key=lambda token_id: logits[token_id])
 
         gen_ids.append(next_token)
