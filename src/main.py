@@ -8,14 +8,45 @@ from src.json_constrainer import encode_text
 from src.constrained import get_next_logits, decode_text
 
 
-def test_number_extraction(model, prompt: str, steps: int = 10):
-    input_ids = encode_text(model, prompt)
+def build_test_input(prompt, registry):
+    from src.json_constrainer import build_model_context
+    context = build_model_context(prompt, registry)
+    escaped_prompt = json.dumps(prompt)
+
+    prefix = (
+        '{"prompt":'
+        + escaped_prompt
+        + ',"name":"fn_add_numbers","parameters":{"a":'
+    )
+
+    return context + "\n\n" + prefix
+
+
+def test_number_extraction(model, prompt: str, registry: list[dict], steps: int = 10):
+    # from src.json_constrainer import build_model_context
+    # context = build_model_context(prompt, registry)
+    # escaped_prompt = json.dumps(prompt)
+    # output_prefix = '{"prompt":' + escaped_prompt
+    # input_text = context + "\n\n" + output_prefix + ',"name":"fn_add_numbers","parameters":{"a":'
+    input_text = build_test_input(prompt, registry)
+    print(repr(input_text))
+    print(len(encode_text(model, input_text)))
+    input_ids = encode_text(model, input_text)
     generated_ids = []
+    print("=== STANDALONE TEST INPUT ===")
+    # print("Last 30 IDs:", input_ids[-30:])
+    # print("Input text:", repr(decode_text(model, input_ids)))
+    # print("Token count:", len(input_ids))
+
+    print("Input token count:", len(input_ids))
+    print("Last 30 IDs:", input_ids[-30:])
 
     for _ in range(steps):
-        print("Input token count:", len(input_ids))
-        print("Input token IDs (last 40):", input_ids[-40:])
-        print("Input text (last 250 chars):", repr(decode_text(model, input_ids)[-250:]))
+        # print("Input token count:", len(input_ids))
+        # print("Input token IDs (last 40):", input_ids[-40:])
+        # print("Input text (last 250 chars):", repr(decode_text(model, input_ids)[-250:]))
+
+        # print("Standalone prefix IDs:", input_ids[-20:])
         logits = get_next_logits(model, input_ids)
 
         # Show the model's preferred next tokens without JSON masking.
@@ -25,10 +56,10 @@ def test_number_extraction(model, prompt: str, steps: int = 10):
             reverse=True
         )[:10]
 
-        print([
-            (model.decode([token_id]), float(logits[token_id]))
-            for token_id in top_ids
-        ])
+        # print([
+        #     (model.decode([token_id]), float(logits[token_id]))
+        #     for token_id in top_ids
+        # ])
 
         next_id = top_ids[0]
         generated_ids.append(next_id)
@@ -92,7 +123,6 @@ def main() -> None:
 
     # User request: What is the sum of -2.53 and -0.12?
 
-
     # {"prompt":"What is the sum of -2.53 and -0.12?","name":"fn_add_numbers","parameters":{"a":"""
     #     )
     # from src.json_constrainer import build_model_context
@@ -117,6 +147,38 @@ def main() -> None:
     #         context + "\n\n" + output_prefix
     #     )
     # return
+    # test_prompt = """Available functions:
+    # Function: fn_add_numbers
+    # Description: Add two numbers together and return their sum.
+    # Parameters:
+    # - a: number
+    # - b: number
+
+    # Function: fn_greet
+    # Description: Generate a greeting message for a person by name.
+    # Parameters:
+    # - name: string
+
+    # Function: fn_reverse_string
+    # Description: Reverse a string and return the reversed result.
+    # Parameters:
+    # - s: string
+
+    # Function: fn_get_square_root
+    # Description: Calculate the square root of a number.
+    # Parameters:
+    # - a: number
+
+    # Function: fn_substitute_string_with_regex
+    # Description: Replace all occurrences matching a regex pattern in a string.
+    # Parameters:
+    # - source_string: string
+    # - regex: string
+    # - replacement: string
+
+    # User request: What is the sum of -2.53 and -0.12?
+
+    # {"prompt":"What is the sum of -2.53 and -0.12?","name":"fn_add_numbers","parameters":{"a":"""
     if len(sys.argv) != 3:
         print("Run: python3 -m src.main <path_to_function_file>",
               "<path_to_test_file")
@@ -133,6 +195,9 @@ def main() -> None:
         prompt = test["prompt"]
         if not registry:
             return None
+
+        # test_number_extraction(model, prompt, registry)
+        # return
 
         tester = constrained_decoder(model, prompt, registry, vocab)
         print(model.decode(tester).rstrip())

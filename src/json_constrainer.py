@@ -597,19 +597,66 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
                         vocab: dict[str, int]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry, vocab)
-    context = build_model_context(prompt, registry)
+    # context = build_model_context(prompt, registry)
     escaped_prompt = json.dumps(prompt)
-    output_prefix = '{"prompt":' + escaped_prompt + ','
-    input_text = context + "\n\n" + output_prefix
+    output_prefix = '{"prompt":' + escaped_prompt + ',"name":"fn_add_numbers","parameters":{"a":'
+    # input_text = context + "\n\n" + output_prefix
+    from src.main import build_test_input
+    input_text = build_test_input(prompt, registry)
+    print(repr(input_text))
+    print(len(encode_text(model, input_text)))
+    state = JSON_State.EXPECT_NUMBER
+    # print(registry)
+    state_machine.curr_func = registry[0]
     gen_ids = encode_text(model, input_text)
     gen_result_ids = encode_text(model, output_prefix)
+    # print("=== ACTUAL DECODER INPUT ===")
+    # print("Input text:", repr(input_text))
+    # print("Token count:", len(gen_ids))
+    # print("Last 30 IDs:", gen_ids[-30:])
 
     while state != JSON_State.DONE:
+        # if state == JSON_State.EXPECT_NUMBER:
+        #     from src.constrained import decode_text
+        #     print("Input token count:", len(gen_ids))
+        #     print("Input text:", repr(decode_text(model, gen_ids)[-150:]))
+        #     print("Input IDs:", gen_ids[-20:])
+        #     print("Full Input text:", decode_text(model, gen_ids))
+        # MAX_GENERATED_TOKENS = 50
+
+        # for step in range(MAX_GENERATED_TOKENS):
+        #     print(step)
+        #     if step == MAX_GENERATED_TOKENS - 1:
+        #         state = JSON_State.DONE
+        #         break
+
         logits = model.get_logits_from_input_ids(gen_ids)
         if hasattr(logits, "__len__") and logits and hasattr(logits[0],
-                                                             "__len__"):
+                                                            "__len__"):
             logits = logits[0]
 
+        # from src.constrained import decode_text
+        # if state == JSON_State.EXPECT_NUMBER:
+            # print("NUMBER PREFIX:", repr(decode_text(model, gen_ids[-30:])))
+            # print("NUMBER PREFIX AS IDS:", gen_ids[-30:])
+            # print("State:", state)
+            # print("Last 30 input IDs:", gen_ids[-30:])
+            # print("FULL PREFIX:", repr(decode_text(model, gen_ids)))
+            # print("TOKEN COUNT:", len(gen_ids))
+
+            # print("Input token count:", len(gen_ids))
+            # print("Last 30 IDs:", gen_ids[-30:])
+
+            # logits = model.get_logits_from_input_ids(gen_ids)
+            # if hasattr(logits[0], "__len__"):
+            #     logits = logits[0]
+
+            # for token_id in [12, 15, 16, 17]:
+            #     print(
+            #         repr(decode_text(model, [token_id])),
+            #         token_id,
+            #         logits[token_id]
+            #     )
         valid_ids = state_machine.valid_tokens(state, gen_ids)
         if not valid_ids:
             raise RuntimeError(f"No valid tokens for state {state.name}")
@@ -623,7 +670,9 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
         # print(model.decode(gen_ids))
-        # print(model.decode(gen_result_ids))
+        print(state)
+        print(model.decode(gen_ids)[-50:])
+        print(model.decode(gen_result_ids))
 
         state = state_machine.update_state(state, next_token, gen_ids)
 
