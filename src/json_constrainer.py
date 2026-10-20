@@ -268,14 +268,15 @@ class JSON_Machine:
 
         return False
 
-    def token_valid_from_string(self, text: str) -> bool:
+    def token_valid_from_string(self, text: str,
+                                escape_pending: bool = False) -> bool:
         state = JSON_State.IN_STRING
-        esc = False
+        esc = escape_pending
 
         for char in text:
             if state == JSON_State.IN_STRING:
                 if esc:
-                    if char not in '\\/bfnrt':
+                    if char not in '\\/bfnrt"':
                         return False
                     esc = False
                     continue
@@ -327,6 +328,20 @@ class JSON_Machine:
 
         return valid
 
+    def valid_string_escape_tokens(self) -> set[int]:
+        valid = set()
+
+        for token_id in range(len(self.vocab)):
+            token_text = self.decode(token_id)
+
+            if self.token_valid_from_string(
+                token_text,
+                escape_pending=True
+            ):
+                valid.add(token_id)
+
+        return valid
+
     def valid_tokens(self, state: JSON_State, gen_ids: list[int]) -> set[int]:
 
         if state == JSON_State.EXPECT_OPEN_OBJ:
@@ -367,6 +382,9 @@ class JSON_Machine:
         elif state == JSON_State.IN_STRING:
             return self.valid_string_tokens()
 
+        elif state == JSON_State.IN_STRING_ESCAPE:
+            return self.valid_string_escape_tokens()
+
         elif state == JSON_State.EXPECT_NUMBER:
             digits = self.digit_tokens()
 
@@ -383,7 +401,8 @@ class JSON_Machine:
 
             if self.has_unused_params():
                 chars.update(self.encode(","))
-            chars.update(self.encode("}"))
+            else:
+                chars.update(self.encode("}"))
             return chars
 
         elif state == JSON_State.IN_INTEGER:
@@ -392,7 +411,8 @@ class JSON_Machine:
 
             if self.has_unused_params():
                 digits.update(self.encode(","))
-            digits.update(self.encode("}"))
+            else:
+                digits.update(self.encode("}"))
 
             return digits
 
@@ -404,7 +424,8 @@ class JSON_Machine:
 
             if self.has_unused_params():
                 digits.update(self.encode(","))
-            digits.update(self.encode("}"))
+            else:
+                digits.update(self.encode("}"))
 
             return digits
 
@@ -414,7 +435,9 @@ class JSON_Machine:
             return self.next_bool_token()
 
         elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
-            return self.valid_first_tokens([",", "}"])
+            if self.has_unused_params():
+                return self.valid_first_tokens([","])
+            return self.valid_first_tokens(["}"])
 
         elif state == JSON_State.EXPECT_OBJ_END:
             return self.valid_first_tokens(["}"])
@@ -437,10 +460,7 @@ class JSON_Machine:
                         continue
 
                     if char == '"':
-                        if self.has_unused_params():
-                            state = JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
-                        else:
-                            state = JSON_State.EXPECT_OBJ_END
+                        state = JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
                         continue
                     continue
 
