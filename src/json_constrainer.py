@@ -198,6 +198,9 @@ class JSON_Machine:
             return None
 
         for param_name, param_type in self.curr_func["parameters"].items():
+            if param_name in self.used_param:
+                continue
+
             param_token = self.encode(f'"{param_name}"')
             if self.verify_sequence(gen_ids, param_token):
                 return param_name, param_type
@@ -499,6 +502,9 @@ class JSON_Machine:
             if self.token_is(curr_token, "}"):
                 return JSON_State.EXPECT_OBJ_END
 
+            if not self.param_sequences:
+                self.init_param_seq()
+
             if self.increment_param(curr_token):
                 param = self.find_param(gen_ids)
 
@@ -597,17 +603,17 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
                         vocab: dict[str, int]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry, vocab)
-    # context = build_model_context(prompt, registry)
+    context = build_model_context(prompt, registry)
     escaped_prompt = json.dumps(prompt)
-    output_prefix = '{"prompt":' + escaped_prompt + ',"name":"fn_add_numbers","parameters":{"a":'
-    # input_text = context + "\n\n" + output_prefix
-    from src.main import build_test_input
-    input_text = build_test_input(prompt, registry)
-    print(repr(input_text))
-    print(len(encode_text(model, input_text)))
-    state = JSON_State.EXPECT_NUMBER
+    output_prefix = '{"prompt":' + escaped_prompt + ','
+    input_text = context + "\n\n" + output_prefix
+    # from src.main import build_test_input
+    # input_text = build_test_input(prompt, registry)
+    # print(repr(input_text))
+    # print(len(encode_text(model, input_text)))
+    # state = JSON_State.EXPECT_NUMBER
     # print(registry)
-    state_machine.curr_func = registry[0]
+    # state_machine.curr_func = registry[0]
     gen_ids = encode_text(model, input_text)
     gen_result_ids = encode_text(model, output_prefix)
     # print("=== ACTUAL DECODER INPUT ===")
@@ -631,8 +637,8 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         #         break
 
         logits = model.get_logits_from_input_ids(gen_ids)
-        if hasattr(logits, "__len__") and logits and hasattr(logits[0],
-                                                            "__len__"):
+        if hasattr(logits, "__len__") and logits and hasattr(
+                logits[0], "__len__"):
             logits = logits[0]
 
         # from src.constrained import decode_text
@@ -670,9 +676,9 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
         # print(model.decode(gen_ids))
-        print(state)
-        print(model.decode(gen_ids)[-50:])
-        print(model.decode(gen_result_ids))
+        # print(state)
+        # print(model.decode(gen_ids)[-50:])
+        # print(model.decode(gen_result_ids))
 
         state = state_machine.update_state(state, next_token, gen_ids)
 
