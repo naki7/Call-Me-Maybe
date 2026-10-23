@@ -5,6 +5,20 @@ from llm_sdk.llm_sdk import Small_LLM_Model
 from src.contexualizer import build_model_context
 
 
+def encode_text(model: Small_LLM_Model, text: str) -> list[int]:
+    ids = model.encode(text)
+
+    try:
+        ids = ids.tolist()
+    except AttributeError:
+        ids = list(ids)
+
+    if ids and isinstance(ids[0], list):
+        ids = ids[0]
+
+    return [int(token_id) for token_id in ids]
+
+
 def load_vocab(model: Small_LLM_Model) -> None:
     vocab_path = model.get_path_to_vocab_file()
     vocab = {}
@@ -623,66 +637,21 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
                         vocab: dict[str, int]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry, vocab)
+
     context = build_model_context(prompt, registry)
     escaped_prompt = json.dumps(prompt)
     output_prefix = '{"prompt":' + escaped_prompt + ','
     input_text = context + "\n\n" + output_prefix
-    # from src.main import build_test_input
-    # input_text = build_test_input(prompt, registry)
-    # print(repr(input_text))
-    # print(len(encode_text(model, input_text)))
-    # state = JSON_State.EXPECT_NUMBER
-    # print(registry)
-    # state_machine.curr_func = registry[0]
+
     gen_ids = encode_text(model, input_text)
     gen_result_ids = encode_text(model, output_prefix)
-    # print("=== ACTUAL DECODER INPUT ===")
-    # print("Input text:", repr(input_text))
-    # print("Token count:", len(gen_ids))
-    # print("Last 30 IDs:", gen_ids[-30:])
 
     while state != JSON_State.DONE:
-        # if state == JSON_State.EXPECT_NUMBER:
-        #     from src.constrained import decode_text
-        #     print("Input token count:", len(gen_ids))
-        #     print("Input text:", repr(decode_text(model, gen_ids)[-150:]))
-        #     print("Input IDs:", gen_ids[-20:])
-        #     print("Full Input text:", decode_text(model, gen_ids))
-        # MAX_GENERATED_TOKENS = 50
-
-        # for step in range(MAX_GENERATED_TOKENS):
-        #     print(step)
-        #     if step == MAX_GENERATED_TOKENS - 1:
-        #         state = JSON_State.DONE
-        #         break
-
         logits = model.get_logits_from_input_ids(gen_ids)
         if hasattr(logits, "__len__") and logits and hasattr(
                 logits[0], "__len__"):
             logits = logits[0]
 
-        # from src.constrained import decode_text
-        # if state == JSON_State.EXPECT_NUMBER:
-            # print("NUMBER PREFIX:", repr(decode_text(model, gen_ids[-30:])))
-            # print("NUMBER PREFIX AS IDS:", gen_ids[-30:])
-            # print("State:", state)
-            # print("Last 30 input IDs:", gen_ids[-30:])
-            # print("FULL PREFIX:", repr(decode_text(model, gen_ids)))
-            # print("TOKEN COUNT:", len(gen_ids))
-
-            # print("Input token count:", len(gen_ids))
-            # print("Last 30 IDs:", gen_ids[-30:])
-
-            # logits = model.get_logits_from_input_ids(gen_ids)
-            # if hasattr(logits[0], "__len__"):
-            #     logits = logits[0]
-
-            # for token_id in [12, 15, 16, 17]:
-            #     print(
-            #         repr(decode_text(model, [token_id])),
-            #         token_id,
-            #         logits[token_id]
-            #     )
         valid_ids = state_machine.valid_tokens(state, gen_ids)
         if not valid_ids:
             raise RuntimeError(f"No valid tokens for state {state.name}")
@@ -692,120 +661,10 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
                 logits[token_id] = float("-inf")
 
         next_token = max(valid_ids, key=lambda token_id: logits[token_id])
-
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
         # print(model.decode(gen_ids))
-        # print(state)
-        # print(model.decode(gen_ids)[-50:])
         # print(model.decode(gen_result_ids))
-
         state = state_machine.update_state(state, next_token, gen_ids)
 
-    # print("FINAL STATE:", state)
-    # print("FINAL RESULT:", repr(model.decode(gen_result_ids)))
-
     return gen_result_ids
-
-
-def encode_text(model: Small_LLM_Model, text: str) -> list[int]:
-    ids = model.encode(text)
-
-    try:
-        ids = ids.tolist()
-    except AttributeError:
-        ids = list(ids)
-
-    if ids and isinstance(ids[0], list):
-        ids = ids[0]
-
-    return [int(token_id) for token_id in ids]
-
-
-# for testing - DELETE BEFORE HAND IN!!!!!!!!!
-def script_exp(model: Small_LLM_Model, vocab: dict[str, int],
-               examples: list[str]) -> None:
-    print(f"Vocab size: {len(vocab)}")
-
-    for text in examples:
-        token_ids = encode_text(model, text)
-
-        print("\n" + "=" * 50)
-        print(f"TEXT: \"{text}\"")
-        print(f"TOKENS: {token_ids}")
-
-        for token_id in token_ids:
-            print(f"  {token_id} -> {model.decode(token_id)}")
-    # print(vocab_path)
-
-    examples = [
-        # "{",
-        # "}",
-        # ":",
-        # ",",
-        # "\"",
-        # "\"name\"",
-        # "\"name\":",
-        # "fn_add_numbers",
-        # "\"fn_add_numbers\"",
-        # "{\"name\":\"fn_add_numbers\"}",
-        # "{\"name\": \"fn_add_numbers\"}",
-        # " fn_add_numbers",
-        # "\nfn_add_numbers",
-        # "40",
-        # "40.5",
-        # "-40",
-        # "true",
-        # "false",
-        # "hello",
-        # "hello world",
-        # " hello",
-        # "fn_",
-        # "fn_add",
-        # "\"hello",
-        # "\"hello world",
-        # "{",
-        # '{"',
-        # '{"name',
-        # '{"name"',
-        # '{"name":',
-        # '{"name":"',
-        # '{"name":"fn_add_numbers',
-        # '{"name":"fn_add_numbers"',
-        # '{"name":"fn_add_numbers",',
-        # '{"name":"fn_add_numbers","parameters":',
-        # '"hello"',
-        # '"hello world"',
-        "1",
-        "12",
-        "123",
-        "100",
-        "1000",
-        "12345",
-        "1.5",
-        "10000000",
-        # "0",
-        # "1",
-        # "9",
-        # "10",
-        # "40",
-        # "40.5",
-        # "-40",
-        # "-40.5",
-        # "123.456"
-        # "true",
-        # "false",
-        # "null",
-        # '"',
-        # '"n',
-        # '"na',
-        # '"nam',
-        # '"name',
-        # '"name"',
-        # '"fn_',
-        # '"fn_a',
-        # '"fn_add',
-        # '"fn_add_',
-        # '"fn_add_numbers',
-    ]
-    script_exp(model, vocab, examples)

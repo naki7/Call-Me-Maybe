@@ -1,184 +1,13 @@
 import sys
-import json
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj
 from src.json_constrainer import constrained_decoder, load_vocab
-from src.json_constrainer import encode_text
-from src.constrained import get_next_logits, decode_text
-
-
-def build_test_input(prompt, registry):
-    from src.json_constrainer import build_model_context
-    context = build_model_context(prompt, registry)
-    escaped_prompt = json.dumps(prompt)
-
-    prefix = (
-        '{"prompt":'
-        + escaped_prompt
-        + ',"name":"fn_add_numbers","parameters":{"a":'
-    )
-
-    return context + "\n\n" + prefix
-
-
-def test_number_extraction(model, prompt: str, registry: list[dict], steps: int = 10):
-    # from src.json_constrainer import build_model_context
-    # context = build_model_context(prompt, registry)
-    # escaped_prompt = json.dumps(prompt)
-    # output_prefix = '{"prompt":' + escaped_prompt
-    # input_text = context + "\n\n" + output_prefix + ',"name":"fn_add_numbers","parameters":{"a":'
-    input_text = build_test_input(prompt, registry)
-    print(repr(input_text))
-    print(len(encode_text(model, input_text)))
-    input_ids = encode_text(model, input_text)
-    generated_ids = []
-    print("=== STANDALONE TEST INPUT ===")
-    # print("Last 30 IDs:", input_ids[-30:])
-    # print("Input text:", repr(decode_text(model, input_ids)))
-    # print("Token count:", len(input_ids))
-
-    print("Input token count:", len(input_ids))
-    print("Last 30 IDs:", input_ids[-30:])
-
-    for _ in range(steps):
-        # print("Input token count:", len(input_ids))
-        # print("Input token IDs (last 40):", input_ids[-40:])
-        # print("Input text (last 250 chars):", repr(decode_text(model, input_ids)[-250:]))
-
-        # print("Standalone prefix IDs:", input_ids[-20:])
-        logits = get_next_logits(model, input_ids)
-
-        # Show the model's preferred next tokens without JSON masking.
-        top_ids = sorted(
-            range(len(logits)),
-            key=lambda token_id: float(logits[token_id]),
-            reverse=True
-        )[:10]
-
-        # print([
-        #     (model.decode([token_id]), float(logits[token_id]))
-        #     for token_id in top_ids
-        # ])
-
-        next_id = top_ids[0]
-        generated_ids.append(next_id)
-        input_ids.append(next_id)
-
-    print("Generated continuation:", repr(model.decode(generated_ids)))
+from src.validator import validate_gened_json, validate_func_call
+from src.dispatcher import dispatch_func
 
 
 def main() -> None:
-    # model = Small_LLM_Model()
-    # print("=======\nTESTING - First number:\n=======\n\n\n")
-    # test_number_extraction(
-    #     model,
-    #     """User request: What is the sum of -2.53 and -0.12?
-    #         Function: fn_add_numbers
-    #         Extract the numbers from the user request in their original order.
-    #         Preserve each number's sign and decimal digits exactly.
-    #         First number:"""
-    # )
-    # print("\n\n\n=======\nTESTING - Return the arguments as JSON:{\"a\":\n=======\n\n\n")
-    # test_number_extraction(
-    #     model,
-    #     """User request: What is the sum of -2.53 and -0.12?
-    #         Function: fn_add_numbers
-    #         Extract the numbers from the user request in their original order.
-    #         Preserve each number's sign and decimal digits exactly.
-    #         Return the arguments as JSON:
-    #         {"a":"""
-    # )
-    # print("\n\n\n=======\nTESTING - Copy the first numeric value from the user request exactly,including its sign and decimal digits. Do not calculate.{\"a\":\n=======\n\n\n")
-    # test_number_extraction(
-    #         model,
-    #         """Available functions:
-    # Function: fn_add_numbers
-    # Description: Add two numbers together and return their sum.
-    # Parameters:
-    # - a: number
-    # - b: number
-
-    # Function: fn_greet
-    # Description: Generate a greeting message for a person by name.
-    # Parameters:
-    # - name: string
-
-    # Function: fn_reverse_string
-    # Description: Reverse a string and return the reversed result.
-    # Parameters:
-    # - s: string
-
-    # Function: fn_get_square_root
-    # Description: Calculate the square root of a number.
-    # Parameters:
-    # - a: number
-
-    # Function: fn_substitute_string_with_regex
-    # Description: Replace all occurrences matching a regex pattern in a string.
-    # Parameters:
-    # - source_string: string
-    # - regex: string
-    # - replacement: string
-
-    # User request: What is the sum of -2.53 and -0.12?
-
-    # {"prompt":"What is the sum of -2.53 and -0.12?","name":"fn_add_numbers","parameters":{"a":"""
-    #     )
-    # from src.json_constrainer import build_model_context
-    # print("=======\nTESTING - using build_model_context:\n=======\n\n\n")
-    # func_path = sys.argv[1]
-    # test_path = sys.argv[2]
-    # registry = json_to_obj(func_path)
-    # tests = json_to_obj(test_path)
-    # for test in tests:
-    #     prompt = test["prompt"]
-    #     context = build_model_context(prompt, registry)
-    #     escaped_prompt = json.dumps(prompt)
-    #     output_prefix = '{"prompt":' + escaped_prompt + ','
-    #     output_prefix = (
-    #         '{"prompt":'
-    #         + json.dumps(prompt)
-    #         + ',"name":"fn_add_numbers","parameters":{"a":'
-    #     )
-
-    #     test_number_extraction(
-    #         model,
-    #         context + "\n\n" + output_prefix
-    #     )
-    # return
-    # test_prompt = """Available functions:
-    # Function: fn_add_numbers
-    # Description: Add two numbers together and return their sum.
-    # Parameters:
-    # - a: number
-    # - b: number
-
-    # Function: fn_greet
-    # Description: Generate a greeting message for a person by name.
-    # Parameters:
-    # - name: string
-
-    # Function: fn_reverse_string
-    # Description: Reverse a string and return the reversed result.
-    # Parameters:
-    # - s: string
-
-    # Function: fn_get_square_root
-    # Description: Calculate the square root of a number.
-    # Parameters:
-    # - a: number
-
-    # Function: fn_substitute_string_with_regex
-    # Description: Replace all occurrences matching a regex pattern in a string.
-    # Parameters:
-    # - source_string: string
-    # - regex: string
-    # - replacement: string
-
-    # User request: What is the sum of -2.53 and -0.12?
-
-    # {"prompt":"What is the sum of -2.53 and -0.12?","name":"fn_add_numbers","parameters":{"a":"""
     if len(sys.argv) != 3:
         print("Run: python3 -m src.main <path_to_function_file>",
               "<path_to_test_file")
@@ -191,50 +20,29 @@ def main() -> None:
     model = Small_LLM_Model()
     vocab = load_vocab(model)
 
+    generated = """
+    {
+        "prompt": "Add five and three",
+        "name": "fn_add_numbers",
+        "parameters": {
+            "a": 5,
+            "b": 3}
+    }
+    """
+
     for test in tests:
         prompt = test["prompt"]
         if not registry:
             return None
 
-        # test_number_extraction(model, prompt, registry)
-        # return
-
-        tester = constrained_decoder(model, prompt, registry, vocab)
-        print(model.decode(tester).rstrip())
-        result = json.loads(model.decode(tester))
-        print(repr(result))
-
-        # context = build_model_context(prompt, registry)
-        # print(context)
-
-        # input_ids = encode_text(model, context)
-        # print(model.decode(input_ids) == context)
-
-        # print(model.decode(tester))
-        # load_vocab(model)
-    #     return
-
-    #     result = process_prompts(prompt, registry, model)
-    #     return
-
-    #     assert "prompt" in result
-    #     assert "name" in result
-    #     assert "parameters" in result
-
-    #     func_def = next(
-    #         func for func in registry
-    #         if func["name"] == result["name"]
-    #     )
-
-    #     assert set(result["parameters"].keys()) == set(
-    #         func_def["parameters"].keys())
-
-    #     print(prompt)
-    #     print(result)
-    #     all_results.append(result)
-
-    # obj_to_json({"results": all_results})
-    # print(json.dumps(all_results, indent=2))
+        # add arrays and nested objects
+        generated = constrained_decoder(model, prompt, registry, vocab)
+        generated_text = model.decode(generated)
+        call = validate_gened_json(generated_text)
+        call = validate_func_call(call, registry)
+        print(call)
+        result = dispatch_func(call)
+        print(result)
 
 
 if __name__ == '__main__':
