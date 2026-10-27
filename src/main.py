@@ -3,7 +3,8 @@ import sys
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj
 from src.json_constrainer import constrained_decoder, load_vocab
-from src.validator import validate_gened_json, validate_func_call
+from src.validator import (load_registry, validate_gened_json,
+                           validate_func_call)
 from src.dispatcher import dispatch_func
 
 
@@ -15,7 +16,8 @@ def main() -> None:
 
     func_path = sys.argv[1]
     test_path = sys.argv[2]
-    registry = json_to_obj(func_path)
+    # registry = json_to_obj(func_path)
+    registry = load_registry(func_path)
     tests = json_to_obj(test_path)
     model = Small_LLM_Model()
     vocab = load_vocab(model)

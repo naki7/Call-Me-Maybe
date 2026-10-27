@@ -2,7 +2,7 @@ import json
 from enum import Enum, auto
 
 from llm_sdk.llm_sdk import Small_LLM_Model
-from src.contexualizer import build_model_context
+from contextualizer import build_model_context
 
 
 def encode_text(model: Small_LLM_Model, text: str) -> list[int]:

@@ -1,32 +1,31 @@
 import json
+from pydantic import ValidationError
+
+from src.schemas import FunctionCall, FunctionDefinition
+
+
+def load_registry(path: str) -> list[dict]:
+    with open(path, "r", encoding="utf-8") as file:
+        text = json.load(file)
+
+    validated_registry = [
+        FunctionDefinition.model_validate(item) for item in text
+    ]
+
+    return [
+        function.model_dump() for function in validated_registry
+    ]
 
 
 def validate_gened_json(generated_text: str) -> dict:
-    """Parse the generated JSON and validate its top-level structure."""
-    required_keys = {"prompt", "name", "parameters"}
-
     try:
-        result = json.loads(generated_text)
-    except json.JSONDecodeError as alert:
-        raise ValueError(f"Generated invalid JSON: {alert}") from alert
+        call = FunctionCall.model_validate_json(generated_text)
+    except ValidationError as alert:
+        raise ValueError(
+            f"Generated function call is invalid: {alert}"
+        ) from alert
 
-    if not isinstance(result, dict):
-        raise ValueError("Generated output must be a JSON object")
-
-    if set(result.keys()) != required_keys:
-        raise ValueError(f"Expected exactly {required_keys}, "
-                         f"got {set(result.keys())}")
-
-    if not isinstance(result["prompt"], str):
-        raise ValueError("'prompt' must be a string")
-
-    if not isinstance(result["name"], str):
-        raise ValueError("'name' must be a string")
-
-    if not isinstance(result["parameters"], dict):
-        raise ValueError("'parameters' must be an object")
-
-    return result
+    return call.model_dump()
 
 
 def validate_func_call(call: dict, registry: list[dict]) -> dict:
