@@ -27,10 +27,10 @@ def json_to_obj(file: str) -> Any:
     return {}
 
 
-def obj_to_json(object: dict[Any, Any]) -> None:
+def obj_to_json(object: list[Any, Any], path: str) -> None:
     check_directory()
 
-    with open(BASE_FILE, 'w', encoding="utf-8") as file:
-        json.dump(object["results"], file, indent=2)
+    with open(path, 'w', encoding="utf-8") as file:
+        json.dump(object, file, indent=2)
         file.write('\n')
-    print(f'{BASE_FILE} successfully written.')
+    print(f'{path} successfully written.')

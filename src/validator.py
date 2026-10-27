@@ -5,8 +5,11 @@ from src.schemas import FunctionCall, FunctionDefinition
 
 
 def load_registry(path: str) -> list[dict]:
-    with open(path, "r", encoding="utf-8") as file:
-        text = json.load(file)
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            text = json.load(file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Invalid file path in processing: {path}")
 
     validated_registry = [
         FunctionDefinition.model_validate(item) for item in text

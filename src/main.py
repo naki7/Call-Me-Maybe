@@ -1,7 +1,7 @@
 import sys
 
 from llm_sdk.llm_sdk import Small_LLM_Model
-from src.in_out_handler import json_to_obj
+from src.in_out_handler import json_to_obj, obj_to_json
 from src.json_constrainer import constrained_decoder, load_vocab
 from src.validator import (load_registry, validate_gened_json,
                            validate_func_call)
@@ -10,27 +10,26 @@ from src.dispatcher import dispatch_func
 
 def main() -> None:
     if len(sys.argv) != 3:
-        print("Run: python3 -m src.main <path_to_function_file>",
-              "<path_to_test_file")
-        sys.exit(1)
-
-    func_path = sys.argv[1]
-    test_path = sys.argv[2]
-    # registry = json_to_obj(func_path)
-    registry = load_registry(func_path)
+        print("Using defaults for: uv run python -m src",
+              "[--functions_definition <function_definition_file>]",
+              "[--input <input_file>",
+              "[--output <output_file>]")
+        func_path = ".\\data\\input\\functions_definition.json"
+        test_path = ".\\data\\input\\function_calling_tests.json"
+        out_path = ".\\data\\output\\function_calls.json"
+    else:
+        func_path = sys.argv[1]
+        test_path = sys.argv[2]
+        out_path = sys.argv[3]
+    try:
+        registry = load_registry(func_path)
+    except Exception as alert:
+        print(alert)
+        return None
     tests = json_to_obj(test_path)
     model = Small_LLM_Model()
     vocab = load_vocab(model)
-
-    generated = """
-    {
-        "prompt": "Add five and three",
-        "name": "fn_add_numbers",
-        "parameters": {
-            "a": 5,
-            "b": 3}
-    }
-    """
+    generated_results = []
 
     for test in tests:
         prompt = test["prompt"]
@@ -41,10 +40,13 @@ def main() -> None:
         generated = constrained_decoder(model, prompt, registry, vocab)
         generated_text = model.decode(generated)
         call = validate_gened_json(generated_text)
-        call = validate_func_call(call, registry)
+        validated_call = validate_func_call(call, registry)
+
+        generated_results.append(validated_call)
         print(call)
-        result = dispatch_func(call)
-        print(result)
+        # result = dispatch_func(call)
+        # print(result)
+    obj_to_json(generated_results, out_path)
 
 
 if __name__ == '__main__':
