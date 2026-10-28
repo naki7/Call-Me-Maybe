@@ -66,6 +66,8 @@ class JSON_Machine:
         self.vocab = vocab
         self.func_names = [func["name"] for func in self.registry]
 
+        self._string_token_cache: tuple[set[int], set[int]] | None = None
+
         self.curr_func = None
         self.curr_param = None
         self.used_param = set()
@@ -331,30 +333,32 @@ class JSON_Machine:
 
         return not esc
 
-    def valid_string_tokens(self) -> set[int]:
-        valid = set()
+    def _build_token_cache(self) -> tuple[set[int], set[int]]:
+        valid_tokens: set[int] = set()
+        valid_esc_tokens: set[int] = set()
 
         for token_id in range(len(self.vocab)):
             token_text = self.decode(token_id)
 
             if self.token_valid_from_string(token_text):
-                valid.add(token_id)
+                valid_tokens.add(token_id)
 
-        return valid
+            if self.token_valid_from_string(token_text, escape_pending=True):
+                valid_esc_tokens.add(token_id)
+
+        return valid_tokens, valid_esc_tokens
+
+    def valid_string_tokens(self) -> set[int]:
+        if self._string_token_cache is None:
+            self._string_token_cache = self._build_token_cache()
+
+        return self._string_token_cache[0]
 
     def valid_string_escape_tokens(self) -> set[int]:
-        valid = set()
+        if self._string_token_cache is None:
+            self._string_token_cache = self._build_token_cache()
 
-        for token_id in range(len(self.vocab)):
-            token_text = self.decode(token_id)
-
-            if self.token_valid_from_string(
-                token_text,
-                escape_pending=True
-            ):
-                valid.add(token_id)
-
-        return valid
+        return self._string_token_cache[1]
 
     def valid_tokens(self, state: JSON_State, gen_ids: list[int]) -> set[int]:
 
