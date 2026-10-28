@@ -1,5 +1,4 @@
-import sys
-
+from src.parser import parse_args
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj, obj_to_json
 from src.json_constrainer import constrained_decoder, load_vocab
@@ -9,23 +8,11 @@ from src.dispatcher import dispatch_func
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        print("Using defaults for: uv run python -m src",
-              "[--functions_definition <function_definition_file>]",
-              "[--input <input_file>",
-              "[--output <output_file>]")
-        func_path = ".\\data\\input\\functions_definition.json"
-        test_path = ".\\data\\input\\function_calling_tests.json"
-        out_path = ".\\data\\output\\function_calls.json"
-    else:
-        func_path = sys.argv[1]
-        test_path = sys.argv[2]
-        out_path = sys.argv[3]
-    try:
-        registry = load_registry(func_path)
-    except Exception as alert:
-        print(alert)
-        return None
+    arguments = parse_args()
+    func_path = arguments.functions_definition
+    test_path = arguments.input
+    out_path = arguments.output
+    registry = load_registry(func_path)
     tests = json_to_obj(test_path)
     model = Small_LLM_Model()
     vocab = load_vocab(model)
