@@ -14,15 +14,17 @@ def main() -> None:
     out_path = arguments.output
     try:
         registry = load_registry(func_path)
+        if not registry:
+            raise ValueError("Registry is empty.")
         tests = json_to_obj(test_path)
+        if not isinstance(tests, list):
+            raise ValueError("The input file must contain a JSON array.")
         model = Small_LLM_Model()
         vocab = load_vocab(model)
         generated_results = []
 
         for test in tests:
             prompt = test["prompt"]
-            if not registry:
-                return None
 
             # add arrays and nested objects
             generated = constrained_decoder(model, prompt, registry, vocab)

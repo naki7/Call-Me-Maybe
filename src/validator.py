@@ -31,9 +31,47 @@ def validate_gened_json(generated_text: str) -> dict:
     return call.model_dump()
 
 
+def normalize_parameter_types(call: dict, registry: list[dict]) -> dict:
+    """Convert function-call arguments to their declared Python types."""
+    func_name = call["name"]
+
+    func = next(
+        (
+            function for function in registry if function["name"] == func_name
+        ),
+        None
+    )
+
+    if func is None:
+        raise ValueError(f"Unknown function: {func_name}")
+
+    parameters = call["parameters"]
+
+    for param_name, definition in func["parameters"].items():
+        if param_name not in parameters:
+            continue
+
+        value = parameters[param_name]
+        param_type = definition["type"]
+
+        if param_type == "number":
+            if isinstance(value, bool) or not isinstance(
+                value, (int, float)
+            ):
+                raise ValueError(
+                    f"Parameter '{param_name}' must be a number"
+                )
+
+            parameters[param_name] = float(value)
+
+    return call
+
+
 def validate_func_call(call: dict, registry: list[dict]) -> dict:
     """Validates the parsed function call compared to what is in the
     funciton registry"""
+
+    call = normalize_parameter_types(call, registry)
 
     # Validate Function
     func_name = call["name"]

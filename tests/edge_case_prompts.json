@@ -1,0 +1,36 @@
+
+[
+  {
+    "prompt": "What is the sum of 2 and 3?"
+  },
+  {
+    "prompt": "What is the sum of 1000000000 and 2000000000?"
+  },
+  {
+    "prompt": "What is 2.5 plus 3.25?"
+  },
+  {
+    "prompt": "What is the sum of -12 and -8?"
+  },
+  {
+    "prompt": "Reverse the empty string."
+  },
+  {
+    "prompt": "Reverse the string containing hello, a quotation mark, and a backslash: hello \"world\" \\ test"
+  },
+  {
+    "prompt": "Replace every occurrence of cat with dog in the text 'cat sat beside another cat'."
+  },
+  {
+    "prompt": "Replace each sequence of digits in 'Room 42, floor 7' with NUM."
+  },
+  {
+    "prompt": "Calculate the square root of 144."
+  },
+  {
+    "prompt": "Greet someone named Zoë 🐈."
+  },
+  {
+    "prompt": "Can you help me with this?"
+  }
+]
