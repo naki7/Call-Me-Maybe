@@ -2,33 +2,26 @@ import json
 from pathlib import Path
 from typing import Any
 
-DIRECTORY = Path('./data/output')
-BASE_FILE = DIRECTORY / "function_calling_results.json"
-BACKUP_FILE = DIRECTORY / "function_calling_results_backup.json"
 
-
-def check_directory() -> None:
-    DIRECTORY.mkdir(parents=True, exist_ok=True)
-
-
-def json_to_obj(file: str) -> Any:
+def json_to_obj(path: str | Path) -> Any:
     try:
-        with open(file, "r", encoding="utf-8") as text:
-            return json.load(text)
-    except FileNotFoundError:
-        print(f"JSON file not found: {file}")
-        quit()
-    except PermissionError:
-        print(f"Permissions denied while opening: {file}")
-        quit()
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError as alert:
+        raise FileNotFoundError(f"JSON file not found: {path}") from alert
+    except PermissionError as alert:
+        raise PermissionError(
+            f"Permissions denied while opening: {path}") from alert
     except json.JSONDecodeError as alert:
-        print(f"Invalid JSON in: {file} - {alert}")
-
-    return {}
+        raise ValueError(f"Invalid JSON in: {path} - {alert}") from alert
 
 
-def obj_to_json(object: list[Any, Any], path: str) -> None:
-    check_directory()
+def check_directory(path: str | Path) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+
+def obj_to_json(object: Any, path: str | Path) -> None:
+    check_directory(path)
 
     with open(path, 'w', encoding="utf-8") as file:
         json.dump(object, file, indent=2)
