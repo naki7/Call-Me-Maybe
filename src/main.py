@@ -4,42 +4,50 @@ from src.in_out_handler import json_to_obj, obj_to_json
 from src.json_constrainer import constrained_decoder, load_vocab
 from src.validator import (load_registry, validate_gened_json,
                            validate_func_call)
-from src.dispatcher import dispatch_func
 
 
 def main() -> None:
     arguments = parse_args()
     func_path = arguments.functions_definition
-    test_path = arguments.input
+    prompt_path = arguments.input
     out_path = arguments.output
+
     try:
         registry = load_registry(func_path)
         if not registry:
             raise ValueError("Registry is empty.")
-        tests = json_to_obj(test_path)
-        if not isinstance(tests, list):
+
+        prompts = json_to_obj(prompt_path)
+        if not isinstance(prompts, list):
             raise ValueError("The input file must contain a JSON array.")
+
         model = Small_LLM_Model()
         vocab = load_vocab(model)
         generated_results = []
 
-        for test in tests:
-            prompt = test["prompt"]
+        for index, prompt in enumerate(prompts):
+            if not isinstance(prompt, dict):
+                raise ValueError(
+                    f"Prompt at index {index} must be a JSON object.")
 
-            # add arrays and nested objects
-            generated = constrained_decoder(model, prompt, registry, vocab)
-            generated_text = model.decode(generated)
+            curr_prompt = prompt.get("prompt")
+            if not isinstance(curr_prompt, str):
+                raise ValueError(
+                    f"Prompt at index {index} must contain a string prompt.")
+
+            gen_tokens = constrained_decoder(model, curr_prompt, registry,
+                                             vocab)
+            generated_text = model.decode(gen_tokens)
+
             call = validate_gened_json(generated_text)
             validated_call = validate_func_call(call, registry)
 
             generated_results.append(validated_call)
-            # print(call)
-            # result = dispatch_func(call)
-            # print(result)
+            print(validated_call)
+
         obj_to_json(generated_results, out_path)
     except (OSError, ValueError) as alert:
         print(f"Error: {alert}")
-        return None
 
 
 if __name__ == '__main__':

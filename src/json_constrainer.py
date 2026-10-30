@@ -668,7 +668,7 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
         # print(model.decode(gen_ids))
-        print(model.decode(gen_result_ids))
+        # print(model.decode(gen_result_ids))
         state = state_machine.update_state(state, next_token, gen_ids)
 
     return gen_result_ids
