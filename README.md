@@ -4,122 +4,97 @@
 
 ## Description
 
-### Overview
+This project explores function calling with large language models. Instead of asking the model to answer the question directly, the program asks it to choose a valid function and produce the corresponding arguments in a strict JSON structure. The goal is to generate machine-readable calls such as:
 
-The primary goal of this project is to use llm model(s) to generate tokens
-    that are based on function calls. The important part is that the output
-    tokens from the LLM are constrained by the program to create correct
-    function calls that could be theoretically used on the given prompts.
+```json
+{
+  "prompt": "What is the sum of 2 and 3?",
+  "name": "fn_add_numbers",
+  "parameters": {"a": 2.0, "b": 3.0}
+}
+```
 
-### Project Goals and Specifications
-
-#### Step 1 - Parser and Input Validation
-
-
-#### Step 2 - Vocab
-
-
-
-#### Step 3 - Constrained Decoder
-
-##### Step 3.a - Context Building
-
-##### Step 3.b - Generating Logits
-
-##### Step 3.c - Processing Valid IDs
-
-##### Step 3.d - Preparing the Loop and Updating the State
-
-#### Step 4 - Decoding the tokens and Validating the JSON
-
-#### Step 5 - Validating the Function Calls
-
-#### Step 6 - Writing the Output file
-
-
-
-### Algorithm Choices and Implementation Strategy
-
-
-
-### Design Decisions
-
-
+The implementation combines a function registry, prompt parsing, a constrained decoder, and validation so that only schema-compliant calls are emitted.
 
 ## Instructions
 
 ### Installation
 
-Due to the fact that this program requires both pydantic, rich and pygame to be
-    installed before running, the Makefile create a virtual environment to run
-    the program in and install all the dependencies. First run:
+```bash
+uv sync
+```
 
-    ```
-    make install
-    ```
+If you want to run the project in the local virtual environment manually:
 
-Then to enter the virtual environment use the command:
+```bash
+source .venv/bin/activate
+```
 
-    ```
-    source ./matrix/bin/activate
-    ```
+### Execution
 
-To leave the virtual environment simply call the command:
+```bash
+uv run python -m src --functions_definition data/input/functions_definition.json --input data/input/function_calling_tests.json --output data/output/function_calling_results.json
+```
 
-    ```
-    deactivate
-    ```
+You can also use the built-in task aliases:
 
-If you would like to run typing and syntax checks you can run these commands
-    (note this is best done before using make install, or after using make
-    clean - ensuring you are also outside of the virtual environment):
+```bash
+make install
+make run
+```
 
-    ```
-    make lint
-    make lint-strict
-    ```
+### Example Usage
 
-### Executing the Program
+```bash
+uv run python -m src
+```
 
-To then execute Fly-in you can call the following terminal commands:
+This reads the default prompt and function files and writes the result to `data/output/function_calling_results.json`.
 
-    ```
-    make run FILE=<optional_file_path> OUTPUT=<optional_argument>
-    ```
-In the above template the text in between <> can be replaced with the required
-    file directories, and file names. The optional_argument if left blank will
-    automatically run the program in an only terminal output mode. If the
-    argument 'terminal' is used, the same will happen, while if 'pygame' is
-    specified this will run the program to output only using the graphical
-    display, and lastly, if 'both' is used, it will then run both the terminal
-    output and the graphical display.
+## Algorithm Explanation
 
-### Example Input and Expected Output
+The project follows a constrained-decoding workflow:
 
+1. The prompt and registry are converted into a model context.
+2. The program builds a JSON state machine to enforce the expected call structure.
+3. At each generation step the decoder filters logits to allow only tokens that keep the output valid.
+4. Function names and parameter keys are restricted to values declared in `functions_definition.json`.
+5. Each generated output is validated against the registry before being saved.
+
+This is important because the model alone is not reliable enough to produce valid JSON by chance. The decoder narrows the token space so the output always remains parseable and aligned with the expected schema.
+
+## Design Decisions
+
+- The CLI uses a file-based approach so prompts and function registries can be changed without modifying code.
+- The JSON validator enforces exact keys and required arguments.
+- Numeric parameters are normalized to Python `float` values, which matches the project contract and keeps JSON compatible.
+- The project includes a graceful fallback path if the Qwen model cannot be loaded locally, so the tool still runs and produces deterministic outputs instead of crashing.
+
+## Performance Analysis
+
+The project is designed to prioritize reliability over raw model output. With constrained decoding, the JSON generation is kept structurally valid, which avoids the most common failure mode: malformed function calls. The approach is appropriate for smaller models because it reduces the search space dramatically.
+
+## Challenges Faced
+
+The main challenges were ensuring valid JSON generation and matching the registry schema exactly. In particular, function names, parameter names, and numerical types needed to remain consistent with the project specification. The solution was to add guarding logic at both generation and validation stages.
+
+## Testing Strategy
+
+The project includes tests for JSON validity, function validation, output schema checks, and edge cases like large numbers, negatives, empty strings, and special characters.
+
+```bash
+python3 -m unittest discover -s tests -q
+```
 
 ## Resources
 
-### Algorithms
+### Technical References
 
-- [Pathfinding](https://en.wikipedia.org/wiki/Pathfinding) — general pathfinding info
-- [A* algorithm](https://en.wikipedia.org/wiki/A*_search_algorithm) — A* pathfinding info
-- [Dijkstra algorithm](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm) — Dijkstra pathfinding info
+- [JSON Schema](https://json-schema.org/)
+- [Pydantic](https://docs.pydantic.dev/)
+- [Qwen model docs](https://huggingface.co/Qwen)
+- [Hugging Face Transformers](https://huggingface.co/docs/transformers/index)
 
-### Pygame & Rich
+### AI Usage
 
-- [Pygame Tutorial](https://www.geeksforgeeks.org/python/pygame-tutorial/) — basic Pygame info
-- [Pygame Surface Tutorial](https://www.geeksforgeeks.org/python/pygame-surface/) — info on Surfaces in Pygame
-- [Deep Dive Pygame Surface Info](https://www.pygame.org/docs/ref/surface.html#pygame.Surface.copy) - Deeper information about surfaces in pygame
-- [Deep Dive Pygame Color Info](https://www.pygame.org/docs/ref/color.html) - Deeper information about colors in pygame
-- [Pygame Text Tutorial](https://www.geeksforgeeks.org/python/pygame-working-with-text/) — info on Text in Pygame
-- [Pygame Object Tutorial](https://www.geeksforgeeks.org/python/pygame-drawing-objects-and-shapes/) — info on creating Shapes in Pygame
-- [Pygame Key Input Tutorial](https://www.geeksforgeeks.org/python/how-to-get-keyboard-input-in-pygame/) — info on using keyboard inputs in Pygame
-
-- [Basics of Rich](https://rich.readthedocs.io/en/latest/introduction.html) — info on using the Rich Python library for colors and terminal output
-
-### AI usage
-
-AI was primarily used to refine some resources as some were leading to dead
-    ends or were producing results unrelated to my specific issues. AI was also
-    used as a tool to validate some steps such as struggles around looping and
-    dead-end errors within the algorithm logic that I had already coded.
+AI was used to help reason about constrained decoding, token masks, schema validation, and debugging logic for prompt handling. It was treated as a support tool rather than as a replacement for understanding the code.

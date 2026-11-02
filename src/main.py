@@ -1,7 +1,7 @@
-from src.parser import parse_args
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.in_out_handler import json_to_obj, obj_to_json
 from src.json_constrainer import constrained_decoder, load_vocab
+from src.parser import parse_args
 from src.validator import (load_registry, validate_gened_json,
                            validate_func_call)
 
@@ -35,13 +35,11 @@ def main() -> None:
                 raise ValueError(
                     f"Prompt at index {index} must contain a string prompt.")
 
-            gen_tokens = constrained_decoder(model, curr_prompt, registry,
-                                             vocab)
+            gen_tokens = constrained_decoder(model, curr_prompt,
+                                             registry, vocab)
             generated_text = model.decode(gen_tokens)
-
             call = validate_gened_json(generated_text)
             validated_call = validate_func_call(call, registry)
-
             generated_results.append(validated_call)
             print(validated_call)
 

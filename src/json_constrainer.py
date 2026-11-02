@@ -2,7 +2,7 @@ import json
 from enum import Enum, auto
 
 from llm_sdk.llm_sdk import Small_LLM_Model
-from contextualizer import build_model_context
+from src.contextualizer import build_model_context
 
 
 def encode_text(model: Small_LLM_Model, text: str) -> list[int]:
@@ -42,6 +42,7 @@ class JSON_State(Enum):
     EXPECT_STRING_OPEN = auto()
     IN_STRING = auto()
     IN_STRING_ESCAPE = auto()
+    IN_STRING_UNICODE_HEX = auto()
 
     EXPECT_NUMBER = auto()
     EXPECT_NUMBER_DIGIT = auto()
@@ -49,8 +50,12 @@ class JSON_State(Enum):
     IN_ZERO = auto()
     IN_INTEGER = auto()
     IN_DECIMAL = auto()
+    EXPECT_EXPONENT = auto()
+    EXPECT_EXPONENT_SIGN_OR_DIGIT = auto()
+    IN_EXPONENT = auto()
 
     EXPECT_BOOLEAN = auto()
+    EXPECT_NULL = auto()
 
     EXPECT_COMMA_OR_OBJ_PARAMETERS = auto()
     EXPECT_OBJ_END = auto()
@@ -84,6 +89,9 @@ class JSON_Machine:
 
         self.bool_sequences = []
         self.bool_seq_i = 0
+
+        self.null_sequences = []
+        self.null_seq_i = 0
 
     def encode(self, text: str) -> list[int]:
         return encode_text(self.model, text)
@@ -233,19 +241,19 @@ class JSON_Machine:
     def next_bool_token(self) -> set[int]:
         valid = set()
 
-        for bool in self.bool_sequences:
-            if self.bool_seq_i < len(bool):
-                valid.add(bool[self.bool_seq_i])
+        for bool_value in self.bool_sequences:
+            if self.bool_seq_i < len(bool_value):
+                valid.add(bool_value[self.bool_seq_i])
 
         return valid
 
     def increment_bool(self, curr_token: int) -> bool:
         updated_bools = []
 
-        for bool in self.bool_sequences:
-            if self.bool_seq_i < len(bool):
-                if bool[self.bool_seq_i] == curr_token:
-                    updated_bools.append(bool)
+        for bool_value in self.bool_sequences:
+            if self.bool_seq_i < len(bool_value):
+                if bool_value[self.bool_seq_i] == curr_token:
+                    updated_bools.append(bool_value)
 
         self.bool_sequences = updated_bools
         self.bool_seq_i += 1
@@ -253,8 +261,35 @@ class JSON_Machine:
         if not self.bool_sequences:
             return False
 
-        return all(self.bool_seq_i >= len(bool)
-                   for bool in self.bool_sequences)
+        return all(self.bool_seq_i >= len(bool_value)
+                   for bool_value in self.bool_sequences)
+
+    def init_null_seq(self) -> None:
+        self.null_sequences = [self.encode("null")]
+        self.null_seq_i = 0
+
+    def next_null_token(self) -> set[int]:
+        valid = set()
+        for null_value in self.null_sequences:
+            if self.null_seq_i < len(null_value):
+                valid.add(null_value[self.null_seq_i])
+        return valid
+
+    def increment_null(self, curr_token: int) -> bool:
+        updated_nulls = []
+        for null_value in self.null_sequences:
+            if self.null_seq_i < len(null_value):
+                if null_value[self.null_seq_i] == curr_token:
+                    updated_nulls.append(null_value)
+
+        self.null_sequences = updated_nulls
+        self.null_seq_i += 1
+
+        if not self.null_sequences:
+            return False
+
+        return all(self.null_seq_i >= len(null_value)
+                   for null_value in self.null_sequences)
 
     def has_unused_params(self) -> bool:
         if self.curr_func is None:
@@ -287,18 +322,24 @@ class JSON_Machine:
     def token_valid_from_string(self, text: str,
                                 escape_pending: bool = False) -> bool:
         state = JSON_State.IN_STRING
-        esc = escape_pending
+        escape_mode = escape_pending
+        unicode_digits = 0
 
         for char in text:
             if state == JSON_State.IN_STRING:
-                if esc:
-                    if char not in '\\/bfnrt"':
-                        return False
-                    esc = False
-                    continue
+                if escape_mode:
+                    if char in '\\/bfnrt"':
+                        escape_mode = False
+                        continue
+                    if char == 'u':
+                        state = JSON_State.IN_STRING_UNICODE_HEX
+                        escape_mode = False
+                        unicode_digits = 0
+                        continue
+                    return False
 
                 if char == "\\":
-                    esc = True
+                    escape_mode = True
                     continue
 
                 if char == '"':
@@ -310,6 +351,14 @@ class JSON_Machine:
 
                 if ord(char) < 0x20:
                     return False
+
+            elif state == JSON_State.IN_STRING_UNICODE_HEX:
+                if char in "0123456789abcdefABCDEF":
+                    unicode_digits += 1
+                    if unicode_digits == 4:
+                        state = JSON_State.IN_STRING
+                    continue
+                return False
 
             elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
                 if char == ",":
@@ -331,7 +380,7 @@ class JSON_Machine:
             elif state == JSON_State.DONE:
                 return False
 
-        return not esc
+        return not escape_mode
 
     def _build_token_cache(self) -> tuple[set[int], set[int]]:
         valid_tokens: set[int] = set()
@@ -405,17 +454,17 @@ class JSON_Machine:
 
         elif state == JSON_State.EXPECT_NUMBER:
             digits = self.digit_tokens()
-
             digits.update(self.encode("-"))
             return digits
 
         elif state == JSON_State.EXPECT_NUMBER_DIGIT:
-            digits = self.digit_tokens()
-            return digits
+            return self.digit_tokens()
 
         elif state == JSON_State.IN_ZERO:
             chars = set()
             chars.update(self.encode("."))
+            chars.update(self.encode("e"))
+            chars.update(self.encode("E"))
 
             if self.has_unused_params():
                 chars.update(self.encode(","))
@@ -426,6 +475,8 @@ class JSON_Machine:
         elif state == JSON_State.IN_INTEGER:
             digits = self.digit_tokens()
             digits.update(self.encode("."))
+            digits.update(self.encode("e"))
+            digits.update(self.encode("E"))
 
             if self.has_unused_params():
                 digits.update(self.encode(","))
@@ -439,6 +490,8 @@ class JSON_Machine:
 
         elif state == JSON_State.IN_DECIMAL:
             digits = self.digit_tokens()
+            digits.update(self.encode("e"))
+            digits.update(self.encode("E"))
 
             if self.has_unused_params():
                 digits.update(self.encode(","))
@@ -447,10 +500,34 @@ class JSON_Machine:
 
             return digits
 
+        elif state == JSON_State.EXPECT_EXPONENT:
+            exponents = set(self.encode("e"))
+            exponents.update(self.encode("E"))
+            return exponents
+
+        elif state == JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT:
+            tokens = self.digit_tokens()
+            tokens.update(self.encode("+"))
+            tokens.update(self.encode("-"))
+            return tokens
+
+        elif state == JSON_State.IN_EXPONENT:
+            digits = self.digit_tokens()
+            if self.has_unused_params():
+                digits.update(self.encode(","))
+            else:
+                digits.update(self.encode("}"))
+            return digits
+
         elif state == JSON_State.EXPECT_BOOLEAN:
             if not self.bool_sequences:
                 self.init_bool_seq()
             return self.next_bool_token()
+
+        elif state == JSON_State.EXPECT_NULL:
+            if not self.null_sequences:
+                self.init_null_seq()
+            return self.next_null_token()
 
         elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
             if self.has_unused_params():
@@ -470,13 +547,14 @@ class JSON_Machine:
         self.prev_token = curr_token
         token_text = self.model.decode([curr_token])
 
-        if state in (JSON_State.IN_STRING, JSON_State.IN_STRING_ESCAPE):
+        if state in (JSON_State.IN_STRING, JSON_State.IN_STRING_ESCAPE,
+                     JSON_State.IN_STRING_UNICODE_HEX):
+            unicode_count = 0
             for char in token_text:
                 if state == JSON_State.IN_STRING:
                     if char == "\\":
                         state = JSON_State.IN_STRING_ESCAPE
                         continue
-
                     if char == '"':
                         state = JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
                         continue
@@ -485,6 +563,19 @@ class JSON_Machine:
                 elif state == JSON_State.IN_STRING_ESCAPE:
                     if char in '"\\/bfnrt':
                         state = JSON_State.IN_STRING
+                        continue
+                    if char == 'u':
+                        state = JSON_State.IN_STRING_UNICODE_HEX
+                        unicode_count = 0
+                        continue
+                    return state
+
+                elif state == JSON_State.IN_STRING_UNICODE_HEX:
+                    if char in "0123456789abcdefABCDEF":
+                        unicode_count += 1
+                        if unicode_count == 4:
+                            state = JSON_State.IN_STRING
+                            unicode_count = 0
                         continue
                     return state
 
@@ -562,6 +653,10 @@ class JSON_Machine:
                 return JSON_State.EXPECT_STRING_OPEN
             if self.curr_param["type"] == "boolean":
                 return JSON_State.EXPECT_BOOLEAN
+            if self.curr_param["type"] == "list":
+                return JSON_State.EXPECT_OPEN_OBJ
+            if self.curr_param["type"] == "dictionary":
+                return JSON_State.EXPECT_OPEN_OBJ
 
         elif state == JSON_State.EXPECT_STRING_OPEN:
             return JSON_State.IN_STRING
@@ -569,10 +664,8 @@ class JSON_Machine:
         elif state == JSON_State.EXPECT_NUMBER:
             if self.token_is(curr_token, "-"):
                 return JSON_State.EXPECT_NUMBER_DIGIT
-
             if self.token_is(curr_token, "0"):
                 return JSON_State.IN_ZERO
-
             if self.token_is_digit(curr_token):
                 return JSON_State.IN_INTEGER
 
@@ -582,24 +675,23 @@ class JSON_Machine:
 
         elif state == JSON_State.IN_ZERO:
             if self.token_is(curr_token, "."):
-                return JSON_State.IN_DECIMAL
-
+                return JSON_State.EXPECT_DECIMAL_DIGIT
+            if self.token_is(curr_token, "e") or self.token_is(curr_token, "E"):
+                return JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT
             if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
-
             if self.token_is(curr_token, "}"):
                 return JSON_State.EXPECT_OBJ_END
 
         elif state == JSON_State.IN_INTEGER:
             if self.token_is_digit(curr_token):
                 return JSON_State.IN_INTEGER
-
             if self.token_is(curr_token, "."):
                 return JSON_State.EXPECT_DECIMAL_DIGIT
-
+            if self.token_is(curr_token, "e") or self.token_is(curr_token, "E"):
+                return JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT
             if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
-
             if self.token_is(curr_token, "}"):
                 return JSON_State.EXPECT_OBJ_END
 
@@ -610,10 +702,24 @@ class JSON_Machine:
         elif state == JSON_State.IN_DECIMAL:
             if self.token_is_digit(curr_token):
                 return JSON_State.IN_DECIMAL
-
+            if self.token_is(curr_token, "e") or self.token_is(curr_token, "E"):
+                return JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT
             if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
+            if self.token_is(curr_token, "}"):
+                return JSON_State.EXPECT_OBJ_END
 
+        elif state == JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT:
+            if self.token_is(curr_token, "+") or self.token_is(curr_token, "-"):
+                return JSON_State.IN_EXPONENT
+            if self.token_is_digit(curr_token):
+                return JSON_State.IN_EXPONENT
+
+        elif state == JSON_State.IN_EXPONENT:
+            if self.token_is_digit(curr_token):
+                return JSON_State.IN_EXPONENT
+            if self.token_is(curr_token, ",") and self.has_unused_params():
+                return JSON_State.EXPECT_PARAMETER_KEY
             if self.token_is(curr_token, "}"):
                 return JSON_State.EXPECT_OBJ_END
 
@@ -621,6 +727,12 @@ class JSON_Machine:
             if self.increment_bool(curr_token):
                 self.bool_sequences = []
                 self.bool_seq_i = 0
+                return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
+
+        elif state == JSON_State.EXPECT_NULL:
+            if self.increment_null(curr_token):
+                self.null_sequences = []
+                self.null_seq_i = 0
                 return JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS
 
         elif state == JSON_State.EXPECT_COMMA_OR_OBJ_PARAMETERS:
@@ -660,15 +772,19 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         if not valid_ids:
             raise RuntimeError(f"No valid tokens for state {state.name}")
 
-        for token_id in range(len(logits)):
-            if token_id not in valid_ids:
-                logits[token_id] = float("-inf")
+        valid_logits = {
+            token_id: logits[token_id]
+            for token_id in valid_ids
+            if 0 <= token_id < len(logits)
+        }
+        if not valid_logits:
+            raise RuntimeError(
+                f"No valid token IDs remain in logits for state {state.name}"
+            )
 
-        next_token = max(valid_ids, key=lambda token_id: logits[token_id])
+        next_token = max(valid_logits, key=valid_logits.get)
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
-        # print(model.decode(gen_ids))
-        # print(model.decode(gen_result_ids))
         state = state_machine.update_state(state, next_token, gen_ids)
 
     return gen_result_ids

@@ -1,34 +1,29 @@
-VENV    := venv
-UV		:= uv run python -m
-PYTHON  := $(VENV)/bin/python3
-PIP     := $(VENV)/bin/pip
-MAIN    := ./src/main.py
+VENV    := .venv
+PYTHON  := $(VENV)/bin/python
+UV      := uv
 
 .PHONY: install run debug clean lint lint-strict
 
 all: install
 
 install:
-	python3 -m venv $(VENV)
-	source .venv/bin/activate
-	unzip llm_sdk.zip
-	unzip llm_sdk.zip
+	$(UV) sync
 
 run:
-	$(UV) src
+	$(UV) run python -m src --functions_definition data/input/functions_definition.json --input data/input/function_calling_tests.json --output data/output/function_calling_results.json
 
 debug:
-	$(PYTHON) -m pdb $(MAIN) $(FILE) $(OUTPUT)
+	$(UV) run python -m pdb -m src --functions_definition data/input/functions_definition.json --input data/input/function_calling_tests.json --output data/output/function_calling_results.json
 
 clean:
-	rm -rf $(VENV) build dist *.egg-info .mypy_cache maps
+	rm -rf $(VENV) build dist *.egg-info .mypy_cache .pytest_cache
 	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
 
 lint:
-	flake8 .
-	mypy . --warn-return-any --warn-unused-ignores \
-		--ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+	$(UV) run flake8 .
+	$(UV) run mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
 
 lint-strict:
-	flake8 .
-	mypy . --strict
+	$(UV) run flake8 .
+	$(UV) run mypy . --strict
