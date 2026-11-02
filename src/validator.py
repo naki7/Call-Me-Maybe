@@ -110,6 +110,9 @@ def validate_func_call(call: dict, registry: list[dict]) -> dict:
         if expected_type == "number":
             valid = (isinstance(value, (int, float))
                      and not isinstance(value, bool))
+        elif expected_type == "integer":
+            valid = (isinstance(value, (int))
+                     and not isinstance(value, bool))
         elif expected_type == "string":
             valid = isinstance(value, str)
         elif expected_type == "boolean":

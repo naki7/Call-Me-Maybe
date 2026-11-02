@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 ParameterType = Literal[
     "number",
+    "integer",
     "string",
     "boolean",
     "list",

@@ -647,7 +647,8 @@ class JSON_Machine:
                     return JSON_State.EXPECT_PARAMETER_COLON
 
         elif state == JSON_State.EXPECT_PARAMETER_COLON:
-            if self.curr_param["type"] == "number":
+            if self.curr_param["type"] == "number" or self.curr_param[
+                    "type"] == "integer":
                 return JSON_State.EXPECT_NUMBER
             if self.curr_param["type"] == "string":
                 return JSON_State.EXPECT_STRING_OPEN
@@ -786,5 +787,6 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
         state = state_machine.update_state(state, next_token, gen_ids)
+        print(model.decode(gen_result_ids))
 
     return gen_result_ids
