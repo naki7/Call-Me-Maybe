@@ -9,6 +9,7 @@ ParameterType = Literal[
     "string",
     "boolean",
     "list",
+    "array",
     "dictionary",
 ]
 
