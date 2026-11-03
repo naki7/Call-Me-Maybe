@@ -1,6 +1,7 @@
 import json
 import unittest
 from pathlib import Path
+from typing import Any
 
 from src.validator import validate_gened_json, validate_func_call
 
@@ -11,6 +12,7 @@ REGISTRY_PATH = ROOT / "data" / "input" / "functions_definition.json"
 
 class TestFunctionCallValidation(unittest.TestCase):
     """Test JSON parsing and function-call validation."""
+    registry: list[dict[Any, Any]] = []
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -21,9 +23,9 @@ class TestFunctionCallValidation(unittest.TestCase):
     def make_call(
         self,
         name: str = "fn_add_numbers",
-        parameters: dict | None = None,
+        parameters: dict[Any, Any] | None = None,
         prompt: str = "What is the sum of 2 and 3?",
-    ) -> dict:
+    ) -> dict[Any, Any]:
         """Create a function-call object for testing."""
         if parameters is None:
             parameters = {"a": 2.0, "b": 3.0}

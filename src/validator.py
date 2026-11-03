@@ -1,10 +1,11 @@
 import json
 from pydantic import ValidationError
+from typing import Any
 
 from src.schemas import FunctionCall, FunctionDefinition
 
 
-def load_registry(path: str) -> list[dict]:
+def load_registry(path: str) -> list[dict[Any, Any]]:
     try:
         with open(path, "r", encoding="utf-8") as file:
             text = json.load(file)
@@ -20,7 +21,7 @@ def load_registry(path: str) -> list[dict]:
     ]
 
 
-def validate_gened_json(generated_text: str) -> dict:
+def validate_gened_json(generated_text: str) -> dict[Any, Any]:
     try:
         call = FunctionCall.model_validate_json(generated_text)
     except ValidationError as alert:
@@ -31,7 +32,8 @@ def validate_gened_json(generated_text: str) -> dict:
     return call.model_dump()
 
 
-def normalize_parameter_types(call: dict, registry: list[dict]) -> dict:
+def normalize_parameter_types(call: dict[Any, Any], registry: list[
+        dict[Any, Any]]) -> dict[Any, Any]:
     """Convert function-call arguments to their declared Python types."""
     func_name = call["name"]
 
@@ -76,7 +78,8 @@ def normalize_parameter_types(call: dict, registry: list[dict]) -> dict:
     return call
 
 
-def validate_func_call(call: dict, registry: list[dict]) -> dict:
+def validate_func_call(call: dict[Any, Any], registry: list[
+        dict[Any, Any]]) -> dict[Any, Any]:
     """Validates the parsed function call compared to what is in the
     funciton registry"""
 

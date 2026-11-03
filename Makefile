@@ -25,9 +25,9 @@ clean:
 	find . -type f -name "*.pyc" -delete
 
 lint:
-	flake8 .
-	mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
+	flake8 . --exclude ./llm_sdk
+	mypy . --warn-return-any --warn-unused-ignores --ignore-missing-imports --disallow-untyped-defs --check-untyped-defs --exclude ./llm_sdk --follow-imports=silent
 
 lint-strict:
-	flake8 .
-	mypy . --strict
+	flake8 . --exclude ./llm_sdk
+	mypy . --strict --exclude ./llm_sdk --follow-imports=silent

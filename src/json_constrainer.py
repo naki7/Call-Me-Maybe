@@ -1,5 +1,6 @@
 import json
 from enum import Enum, auto
+from typing import Any
 
 from llm_sdk.llm_sdk import Small_LLM_Model
 from src.contextualizer import build_model_context
@@ -19,7 +20,7 @@ def encode_text(model: Small_LLM_Model, text: str) -> list[int]:
     return [int(token_id) for token_id in ids]
 
 
-def load_vocab(model: Small_LLM_Model) -> None:
+def load_vocab(model: Small_LLM_Model) -> Any:
     vocab_path = model.get_path_to_vocab_file()
     vocab = {}
     with open(vocab_path, "r", encoding="utf-8") as vocab_file:
@@ -64,8 +65,8 @@ class JSON_State(Enum):
 
 
 class JSON_Machine:
-    def __init__(self, model: Small_LLM_Model, registry: list[dict],
-                 vocab: dict):
+    def __init__(self, model: Small_LLM_Model, registry: list[dict[Any, Any]],
+                 vocab: dict[Any, Any]):
         self.model = model
         self.registry = registry
         self.vocab = vocab
@@ -73,30 +74,30 @@ class JSON_Machine:
 
         self._string_token_cache: tuple[set[int], set[int]] | None = None
 
-        self.curr_func = None
-        self.curr_param = None
-        self.used_param = set()
-        self.prev_token = None
+        self.curr_func: dict[Any, Any] = {}
+        self.curr_param: dict[Any, Any] = {}
+        self.used_param: set[Any] = set()
+        self.prev_token: None | int = None
 
-        self.expected_sequence = []
+        self.expected_sequence: list[Any] = []
         self.sequence_i = 0
 
-        self.func_sequences = []
+        self.func_sequences: list[Any] = []
         self.func_seq_i = 0
 
-        self.param_sequences = []
+        self.param_sequences: list[Any] = []
         self.param_seq_i = 0
 
-        self.bool_sequences = []
+        self.bool_sequences: list[Any] = []
         self.bool_seq_i = 0
 
-        self.null_sequences = []
+        self.null_sequences: list[Any] = []
         self.null_seq_i = 0
 
     def encode(self, text: str) -> list[int]:
         return encode_text(self.model, text)
 
-    def decode(self, token_id: int) -> str:
+    def decode(self, token_id: int) -> Any:
         return self.model.decode([token_id])
 
     def valid_first_tokens(self, texts: list[str]) -> set[int]:
@@ -169,7 +170,7 @@ class JSON_Machine:
         return all(self.func_seq_i >= len(func)
                    for func in self.func_sequences)
 
-    def find_func(self, gen_ids: list[int]) -> dict | None:
+    def find_func(self, gen_ids: list[int]) -> dict[Any, Any] | None:
         for func in self.registry:
             func_token = self.encode(f'"{func["name"]}"')
             if self.verify_sequence(gen_ids, func_token):
@@ -217,7 +218,8 @@ class JSON_Machine:
         return all(self.param_seq_i >= len(param)
                    for param in self.param_sequences)
 
-    def find_param(self, gen_ids: list[int]) -> tuple[str, dict] | None:
+    def find_param(self, gen_ids: list[int]) -> tuple[
+            str, dict[Any, Any]] | None:
         if self.curr_func is None:
             return None
 
@@ -754,7 +756,7 @@ class JSON_Machine:
 
 
 def constrained_decoder(model: Small_LLM_Model, prompt: str,
-                        registry: list[dict],
+                        registry: list[dict[Any, Any]],
                         vocab: dict[str, int]) -> list[int]:
     state = JSON_State.EXPECT_NAME_KEY
     state_machine = JSON_Machine(model, registry, vocab)
@@ -767,11 +769,14 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
     gen_ids = encode_text(model, input_text)
     gen_result_ids = encode_text(model, output_prefix)
 
+    next_token: int | None = None
+
     while state != JSON_State.DONE:
         logits = model.get_logits_from_input_ids(gen_ids)
         if hasattr(logits, "__len__") and logits and hasattr(
                 logits[0], "__len__"):
-            logits = logits[0]
+            if isinstance(logits[0], list):
+                logits = logits[0]
 
         valid_ids = state_machine.valid_tokens(state, gen_ids)
         if not valid_ids:
@@ -787,7 +792,7 @@ def constrained_decoder(model: Small_LLM_Model, prompt: str,
                 f"No valid token IDs remain in logits for state {state.name}"
             )
 
-        next_token = max(valid_logits, key=valid_logits.get)
+        next_token = max(valid_logits, key=lambda token: valid_logits[token])
         gen_ids.append(next_token)
         gen_result_ids.append(next_token)
         state = state_machine.update_state(state, next_token, gen_ids)

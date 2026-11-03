@@ -1,6 +1,7 @@
+from typing import Any
 
 
-def build_model_context(prompt: str, registry: list[dict]) -> str:
+def build_model_context(prompt: str, registry: list[dict[Any, Any]]) -> str:
     context = "Available functions:\n"
 
     for func in registry:

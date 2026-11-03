@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch
+from typing import Any
 
 from src import main as main_module
 
@@ -17,16 +18,16 @@ class TestMain(unittest.TestCase):
     @patch("src.main.parse_args")
     def test_processes_multiple_prompts(
         self,
-        mock_args,
-        mock_registry,
-        mock_json,
-        mock_model_class,
-        mock_vocab,
-        mock_decoder,
-        mock_validate_json,
-        mock_validate_call,
-        mock_write,
-    ):
+        mock_args: Any,
+        mock_registry: Any,
+        mock_json: Any,
+        mock_model_class: Any,
+        mock_vocab: Any,
+        mock_decoder: Any,
+        mock_validate_json: Any,
+        mock_validate_call: Any,
+        mock_write: Any,
+    ) -> None:
         """Runs a mock test of the main.py file to verify multiple variables"""
         mock_args.return_value.functions_definition = "functions.json"
         mock_args.return_value.input = "input.json"
