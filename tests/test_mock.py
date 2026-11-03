@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from src import main as main_module
 
+
 class TestMain(unittest.TestCase):
 
     @patch("src.main.obj_to_json")
@@ -55,6 +56,7 @@ class TestMain(unittest.TestCase):
         mock_write.assert_called_once()
         saved_results = mock_write.call_args.args[0]
         self.assertEqual(len(saved_results), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

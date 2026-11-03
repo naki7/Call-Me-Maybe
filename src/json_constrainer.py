@@ -677,7 +677,8 @@ class JSON_Machine:
         elif state == JSON_State.IN_ZERO:
             if self.token_is(curr_token, "."):
                 return JSON_State.EXPECT_DECIMAL_DIGIT
-            if self.token_is(curr_token, "e") or self.token_is(curr_token, "E"):
+            if self.token_is(curr_token, "e") or self.token_is(
+                    curr_token, "E"):
                 return JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT
             if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
@@ -689,7 +690,8 @@ class JSON_Machine:
                 return JSON_State.IN_INTEGER
             if self.token_is(curr_token, "."):
                 return JSON_State.EXPECT_DECIMAL_DIGIT
-            if self.token_is(curr_token, "e") or self.token_is(curr_token, "E"):
+            if self.token_is(curr_token, "e") or self.token_is(
+                    curr_token, "E"):
                 return JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT
             if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
@@ -703,7 +705,8 @@ class JSON_Machine:
         elif state == JSON_State.IN_DECIMAL:
             if self.token_is_digit(curr_token):
                 return JSON_State.IN_DECIMAL
-            if self.token_is(curr_token, "e") or self.token_is(curr_token, "E"):
+            if self.token_is(curr_token, "e") or self.token_is(
+                    curr_token, "E"):
                 return JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT
             if self.token_is(curr_token, ",") and self.has_unused_params():
                 return JSON_State.EXPECT_PARAMETER_KEY
@@ -711,7 +714,8 @@ class JSON_Machine:
                 return JSON_State.EXPECT_OBJ_END
 
         elif state == JSON_State.EXPECT_EXPONENT_SIGN_OR_DIGIT:
-            if self.token_is(curr_token, "+") or self.token_is(curr_token, "-"):
+            if self.token_is(curr_token, "+") or self.token_is(
+                    curr_token, "-"):
                 return JSON_State.IN_EXPONENT
             if self.token_is_digit(curr_token):
                 return JSON_State.IN_EXPONENT

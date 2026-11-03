@@ -59,16 +59,16 @@ def normalize_parameter_types(call: dict, registry: list[dict]) -> dict:
                 value, (int, float)
             ):
                 raise ValueError(
-                    f"Parameter '{param_name}' must be a number"
+                    f"Parameter '{param_name}' must be a float"
                 )
 
             parameters[param_name] = float(value)
         elif param_type == "integer":
             if isinstance(value, bool) or not isinstance(
-                value, (int, float)
+                value, (int)
             ):
                 raise ValueError(
-                    f"Parameter '{param_name}' must be a number"
+                    f"Parameter '{param_name}' must be an integer"
                 )
 
             parameters[param_name] = int(value)

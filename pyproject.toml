@@ -1,13 +1,14 @@
 [project]
 name = "callmemaybe"
 version = "0.1.0"
-description = "Add your description here"
+description = "This project explores function calling with large language models."
 readme = "README.md"
 authors = [
     { name = "Naki Neves", email = "joshie.cad@gmail.com" }
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "accelerate>=1.15.0",
     "huggingface>=0.0.1",
     "numpy>=2.2.6",
     "pydantic",
