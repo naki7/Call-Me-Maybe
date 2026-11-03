@@ -7,6 +7,10 @@ UV      := uv
 all: install
 
 install:
+	mkdir -p /sgoinfre/joshde-s/.cache/uv
+	export UV_CACHE_DIR=/sgoinfre/joshde-s/.cache/uv
+	mkdir -p /sgoinfre/joshde-s/.cache/huggingface
+	export HF_HOME=/sgoinfre/joshde-s/.cache/huggingface
 	$(UV) sync
 
 run:
